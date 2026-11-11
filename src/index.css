@@ -1,0 +1,602 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #0E0E0C;
+    color: #EEECE5;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* Accessibility cursor affordance */
+  a[href],
+  button,
+  select,
+  summary,
+  label[for],
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Keyboard focus visible indicator in signal (#F2B705) for public site */
+  :focus-visible {
+    outline: 2px solid #F2B705;
+    outline-offset: 2px;
+  }
+
+  /* Soft-Card Dashboard tokens scoped to admin layout */
+  :root,
+  .admin-theme {
+    --start-soft-bg: #E4F2FE;
+    --start-soft-fg: #1A64B0;
+    --start-solid-bg: #1D6FC4;
+    --start-solid-fg: #FFFFFF;
+    --wait-soft-bg: #FFF1DA;
+    --wait-soft-fg: #8A5A00;
+    --wait-solid-bg: #FFBD59;
+    --wait-solid-fg: #1E2230;
+    --cancel-soft-bg: #FDE3E9;
+    --cancel-soft-fg: #B4234A;
+    --cancel-solid-bg: #D62E5A;
+    --cancel-solid-fg: #FFFFFF;
+    --add-soft-bg: #E6F6EC;
+    --add-soft-fg: #166534;
+    --add-solid-bg: #15803D;
+    --add-solid-fg: #FFFFFF;
+    --cream-soft-bg: #FAF1DC;
+    --cream-soft-fg: #7A5A12;
+    --cream-solid-bg: #E8CF98;
+    --cream-solid-fg: #1E2230;
+  }
+
+  .admin-theme {
+    --admin-canvas: #EEF0F4;
+    --admin-surface: #FFFFFF;
+    --admin-ink: #1E2230;
+    --admin-muted: #646B7C;
+    --admin-decor: #8A90A0;
+    --admin-divider: #EEF0F4;
+    --admin-header-strip: #F6F7FA;
+    --admin-input-border: #D9DDE6;
+    --admin-accent: #FFBD59;
+    --admin-coral: #F2466F;
+    --admin-green: #5CC46A;
+    --admin-blue: #3DA5F5;
+    --admin-text-green: #1F9D3A;
+    --admin-text-amber: #B77700;
+    --admin-text-coral: #D62E5A;
+    --admin-text-blue: #1D6FC4;
+    background-color: #EEF0F4;
+    color: #1E2230;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus ring on every control: 2px ink (#1E2230) with 2px offset */
+  .admin-theme :focus-visible {
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Tabular figures for numbers; IBM Plex Mono 500 only on plates, part codes, and frame/engine codes */
+  .admin-theme data,
+  .admin-theme output {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .admin-theme samp,
+  .admin-theme .font-mono {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .admin-theme kbd,
+  .admin-keycap {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid #D9DDE6;
+    border-radius: 6px;
+    background-color: #F6F7FA;
+    color: #1E2230;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+}
+
+@layer components {
+  /* Page title: 24px weight 600, sentence case */
+  .admin-macro-page {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 1.25;
+    color: #1E2230;
+  }
+
+  /* Card title / section title: 16px weight 600, sentence case */
+  .admin-macro-section {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1.35;
+    color: #1E2230;
+  }
+
+  /* Label / metadata helper: 12px weight 500, sentence case */
+  .admin-micro {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  /* Cards: radius 20, padding 20, no border, shadow 0 10px 30px rgba(0,0,0,0.04) */
+  .admin-card {
+    background-color: #FFFFFF;
+    border-radius: 20px;
+    padding: 20px;
+    border: 0;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Inputs: 44px high, radius 12, 1px #D9DDE6 border, white fill */
+  .admin-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    background-color: #FFFFFF;
+    color: #1E2230;
+    border: 1px solid #D9DDE6;
+    border-radius: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    transition: border-color 120ms ease;
+  }
+  textarea.admin-input {
+    padding: 10px 12px;
+  }
+  .admin-input::placeholder {
+    color: #646B7C;
+  }
+  .admin-input:focus,
+  .admin-input:focus-visible {
+    border-color: #1E2230;
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+
+  /* ActionButton & IconActionButton (FIX J: start, wait, cancel, neutral, addline) */
+  .admin-action-btn,
+  .admin-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 0;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.3;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      border-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 90ms ease-out;
+  }
+
+  .admin-icon-action-btn,
+  .admin-icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 10px;
+    border: 0;
+    transition: background-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      border-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 90ms ease-out;
+  }
+  .admin-icon-action-btn::after,
+  .admin-icon-btn::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+  }
+
+  /* Intent: start (soft blue -> solid blue) */
+  .admin-intent-start,
+  .admin-btn-primary,
+  .admin-icon-btn-green {
+    background-color: var(--start-soft-bg);
+    color: var(--start-soft-fg);
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-start:hover:not(:disabled),
+    .admin-btn-primary:hover:not(:disabled),
+    .admin-icon-btn-green:hover:not(:disabled) {
+      background-color: var(--start-solid-bg);
+      color: var(--start-solid-fg);
+    }
+  }
+  .admin-intent-start:focus-visible:not(:disabled),
+  .admin-btn-primary:focus-visible:not(:disabled),
+  .admin-icon-btn-green:focus-visible:not(:disabled) {
+    background-color: var(--start-solid-bg);
+    color: var(--start-solid-fg);
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-start:active:not(:disabled),
+  .admin-btn-primary:active:not(:disabled),
+  .admin-icon-btn-green:active:not(:disabled) {
+    background-color: var(--start-solid-bg);
+    color: var(--start-solid-fg);
+    transform: scale(0.98);
+  }
+
+  /* Intent: wait (soft yellow -> solid amber) */
+  .admin-intent-wait {
+    background-color: var(--wait-soft-bg);
+    color: var(--wait-soft-fg);
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-wait:hover:not(:disabled) {
+      background-color: var(--wait-solid-bg);
+      color: var(--wait-solid-fg);
+    }
+  }
+  .admin-intent-wait:focus-visible:not(:disabled) {
+    background-color: var(--wait-solid-bg);
+    color: var(--wait-solid-fg);
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-wait:active:not(:disabled) {
+    background-color: var(--wait-solid-bg);
+    color: var(--wait-solid-fg);
+    transform: scale(0.98);
+  }
+
+  /* Intent: cancel (soft red -> solid coral) */
+  .admin-intent-cancel,
+  .admin-icon-btn-coral {
+    background-color: var(--cancel-soft-bg);
+    color: var(--cancel-soft-fg);
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-cancel:hover:not(:disabled),
+    .admin-icon-btn-coral:hover:not(:disabled) {
+      background-color: var(--cancel-solid-bg);
+      color: var(--cancel-solid-fg);
+    }
+  }
+  .admin-intent-cancel:focus-visible:not(:disabled),
+  .admin-icon-btn-coral:focus-visible:not(:disabled) {
+    background-color: var(--cancel-solid-bg);
+    color: var(--cancel-solid-fg);
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-cancel:active:not(:disabled),
+  .admin-icon-btn-coral:active:not(:disabled) {
+    background-color: var(--cancel-solid-bg);
+    color: var(--cancel-solid-fg);
+    transform: scale(0.98);
+  }
+
+  /* Intent: neutral (white fill, 1px #D9DDE6 border, ink text) */
+  .admin-intent-neutral,
+  .admin-btn-secondary,
+  .admin-icon-btn-blue {
+    background-color: #FFFFFF;
+    color: #1E2230;
+    border: 1px solid #D9DDE6;
+    font-weight: 500;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-neutral:hover:not(:disabled),
+    .admin-btn-secondary:hover:not(:disabled),
+    .admin-icon-btn-blue:hover:not(:disabled) {
+      background-color: #F6F7FA;
+      color: #1E2230;
+    }
+  }
+  .admin-intent-neutral:focus-visible:not(:disabled),
+  .admin-btn-secondary:focus-visible:not(:disabled),
+  .admin-icon-btn-blue:focus-visible:not(:disabled) {
+    background-color: #F6F7FA;
+    color: #1E2230;
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-neutral:active:not(:disabled),
+  .admin-btn-secondary:active:not(:disabled),
+  .admin-icon-btn-blue:active:not(:disabled) {
+    background-color: #EEF0F4;
+    color: #1E2230;
+    transform: scale(0.98);
+  }
+
+  /* Intent: add (soft green -> solid green) */
+  .admin-intent-add {
+    background-color: var(--add-soft-bg);
+    color: var(--add-soft-fg);
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-add:hover:not(:disabled) {
+      background-color: var(--add-solid-bg);
+      color: var(--add-solid-fg);
+    }
+  }
+  .admin-intent-add:focus-visible:not(:disabled) {
+    background-color: var(--add-solid-bg);
+    color: var(--add-solid-fg);
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-add:active:not(:disabled) {
+    background-color: var(--add-solid-bg);
+    color: var(--add-solid-fg);
+    transform: scale(0.98);
+  }
+
+  /* Intent: cream (soft #FAF1DC with #7A5A12 -> solid #E8CF98 with ink #1E2230) */
+  .admin-intent-cream {
+    background-color: var(--cream-soft-bg);
+    color: var(--cream-soft-fg);
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-cream:hover:not(:disabled) {
+      background-color: var(--cream-solid-bg);
+      color: var(--cream-solid-fg);
+    }
+  }
+  .admin-intent-cream:focus-visible:not(:disabled) {
+    background-color: var(--cream-solid-bg);
+    color: var(--cream-solid-fg);
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-cream:active:not(:disabled) {
+    background-color: var(--cream-solid-bg);
+    color: var(--cream-solid-fg);
+    transform: scale(0.98);
+  }
+
+  /* Add-line buttons (Jasa+ and Part+): fill #15803D, text white, hover #166534 */
+  .admin-intent-addline,
+  .admin-btn-addline {
+    background-color: #15803D;
+    color: #FFFFFF;
+    border: 0;
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-intent-addline:hover:not(:disabled),
+    .admin-btn-addline:hover:not(:disabled) {
+      background-color: #166534;
+      color: #FFFFFF;
+    }
+  }
+  .admin-intent-addline:focus-visible:not(:disabled),
+  .admin-btn-addline:focus-visible:not(:disabled) {
+    background-color: #166534;
+    color: #FFFFFF;
+    outline: 2px solid #1E2230 !important;
+    outline-offset: 2px !important;
+  }
+  .admin-intent-addline:active:not(:disabled),
+  .admin-btn-addline:active:not(:disabled) {
+    background-color: #166534;
+    color: #FFFFFF;
+    transform: scale(0.98);
+  }
+
+  /* Text button: sentence case, ink text */
+  .admin-btn-text {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 6px;
+    border-radius: 8px;
+    color: #1E2230;
+    background: transparent;
+    border: 0;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.3;
+    text-decoration: underline;
+    text-decoration-color: #646B7C;
+    text-underline-offset: 3px;
+    white-space: nowrap;
+    transition: background-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 90ms ease-out;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-btn-text:hover:not(:disabled) {
+      background-color: #F6F7FA;
+    }
+  }
+  .admin-btn-text:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  /* Disabled state for all action & icon buttons (including aria-disabled) */
+  .admin-action-btn:disabled,
+  .admin-action-btn[aria-disabled="true"],
+  .admin-icon-action-btn:disabled,
+  .admin-icon-action-btn[aria-disabled="true"],
+  .admin-btn:disabled,
+  .admin-icon-btn:disabled,
+  .admin-btn-text:disabled {
+    background-color: #F1F2F6 !important;
+    color: #6B7280 !important;
+    border-color: transparent !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+  }
+
+  /* Tab buttons: rectangular buttons, radius 12, 40 high, 8px gap.
+     Active: ink fill (#1E2230), white text. Inactive: white fill, 1px #D9DDE6 border, ink text. */
+  .admin-tab-btn {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.3;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      border-color 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 90ms ease-out;
+  }
+  .admin-tab-inactive {
+    background-color: #FFFFFF;
+    color: #1E2230;
+    border: 1px solid #D9DDE6;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .admin-tab-inactive:hover {
+      background-color: #F6F7FA;
+    }
+  }
+  .admin-tab-active {
+    background-color: #1E2230;
+    color: #FFFFFF;
+    border: 1px solid #1E2230;
+  }
+}
+
+/* Saved-row highlight: soft amber tint flash */
+@keyframes admin-row-flash {
+  0% {
+    background-color: rgba(255, 189, 89, 0.28);
+  }
+  100% {
+    background-color: #FFFFFF;
+  }
+}
+.admin-row-flash,
+.row-flash {
+  animation: admin-row-flash 0.7s ease-out;
+}
+
+/* One slow shimmer pass for loading skeleton using transform: translateX on ::after, no loop */
+@keyframes admin-shimmer-once {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.admin-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: #EEF0F4;
+  border-radius: 12px;
+}
+.admin-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-100%);
+  animation: admin-shimmer-once 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) 1 forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-row-flash,
+  .row-flash,
+  .admin-skeleton::after {
+    animation: none;
+  }
+}
+
+/* Print view: hidden on screen, A5 portrait black on white in @media print */
+#admin-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 10mm;
+  }
+  html,
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body > *:not(#admin-print-root) {
+    display: none !important;
+  }
+  #admin-print-root {
+    display: block !important;
+    width: 100% !important;
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+  }
+}
