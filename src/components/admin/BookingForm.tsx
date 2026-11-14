@@ -218,6 +218,10 @@ export const BookingForm: React.FC<BookingFormProps> = ({
 
     setErrors({});
 
+    const resolvedVehicleModel = isCustomerLoggedIn
+      ? user?.motorType || user?.vehicleModel
+      : undefined;
+
     const created = createBookingRecord({
       customerName: customerName.trim(),
       plate: plate.trim().toUpperCase().replace(/\s+/g, ' '),
@@ -228,6 +232,8 @@ export const BookingForm: React.FC<BookingFormProps> = ({
       hour,
       complaint: complaint.trim(),
       source: mode === 'public' ? 'online' : 'langsung',
+      customerEmail: isCustomerLoggedIn && user?.email ? user.email.toLowerCase().trim() : undefined,
+      vehicleModel: resolvedVehicleModel,
     });
 
     if (mode === 'public') {

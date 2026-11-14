@@ -22,3 +22,51 @@ export const nowTime = (): string => {
   return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+const MONTH_NAMES_ID = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+export const formatIndonesianDate = (isoDate: string): string => {
+  if (!isoDate) return '-';
+  const clean = isoDate.slice(0, 10);
+  const [y, m, d] = clean.split('-');
+  const monthIdx = parseInt(m, 10) - 1;
+  const day = parseInt(d, 10);
+  if (isNaN(day) || monthIdx < 0 || monthIdx > 11) return isoDate;
+  return `${day} ${MONTH_NAMES_ID[monthIdx]} ${y}`;
+};
+
+export const formatBookingCreatedDateTime = (createdAt?: string): string => {
+  if (!createdAt) return '-';
+  if (createdAt.includes(' ')) {
+    const [datePart, timePart] = createdAt.split(' ');
+    const dateFormatted = formatIndonesianDate(datePart);
+    const timeFormatted = timePart.replace(':', '.');
+    return `${dateFormatted}, ${timeFormatted} WIB`;
+  }
+  if (createdAt.includes('T')) {
+    const [datePart, rest] = createdAt.split('T');
+    const timePart = rest.slice(0, 5).replace(':', '.');
+    return `${formatIndonesianDate(datePart)}, ${timePart} WIB`;
+  }
+  return `${formatIndonesianDate(createdAt)} WIB`;
+};
+
+export const formatScheduledServiceDateTime = (date: string, hour: string): string => {
+  const dateFormatted = formatIndonesianDate(date);
+  const timeFormatted = (hour || '').replace(':', '.');
+  return `${dateFormatted}, ${timeFormatted} WIB`;
+};
+
+

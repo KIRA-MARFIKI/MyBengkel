@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useAuth } from '../../lib/mockAuth';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useAuth, DEFAULT_BOOTSTRAP_EMAILS } from '../../lib/mockAuth';
 import { ActionButton, EyeIcon, EyeOffIcon } from './ActionButton';
 
 interface SecuritySetupModalProps {
@@ -7,6 +8,8 @@ interface SecuritySetupModalProps {
 }
 
 export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }) => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     user,
     role,
@@ -19,10 +22,22 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
 
   // Active step in modal: 'password' | 'email' | 'pin'
   const [activeTab, setActiveTab] = useState<'password' | 'email' | 'pin'>(() => {
+    const stepParam = searchParams.get('step');
+    if (stepParam === 'pin' && securitySetup.emailCompleted) return 'pin';
     if (!securitySetup.passwordCompleted) return 'password';
     if (!securitySetup.emailCompleted) return 'email';
     return 'pin';
   });
+
+  // Keep active tab synced if email gets confirmed
+  useEffect(() => {
+    const stepParam = searchParams.get('step');
+    if (stepParam === 'pin' && securitySetup.emailCompleted) {
+      setActiveTab('pin');
+    } else if (securitySetup.emailCompleted && !securitySetup.pinCompleted && activeTab === 'email') {
+      setActiveTab('pin');
+    }
+  }, [searchParams, securitySetup.emailCompleted, securitySetup.pinCompleted, activeTab]);
 
   // Password Step State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -39,6 +54,15 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
   const [emailError, setEmailError] = useState('');
   const [emailNotice, setEmailNotice] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // PIN Step State
   const [newPin, setNewPin] = useState('');
@@ -90,6 +114,11 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
       return;
     }
 
+    if (['admin123', 'masteradmin123', 'helpdesk123'].includes(newPassword.trim())) {
+      setPasswordError('Kata sandi baru tidak boleh sama dengan kata sandi bawaan.');
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       setPasswordError('Konfirmasi kata sandi baru tidak sesuai.');
       return;
@@ -105,7 +134,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         setNewPassword('');
         setConfirmPassword('');
         setCurrentPassword('');
-        // Auto-switch to next incomplete step
+        // Auto-switch to next incomplete step (Email)
         if (!securitySetup.emailCompleted) {
           setActiveTab('email');
         } else if (!securitySetup.pinCompleted) {
@@ -143,6 +172,11 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
       return;
     }
 
+    if (DEFAULT_BOOTSTRAP_EMAILS.includes(cleanNew)) {
+      setEmailError('Email baru tidak boleh menggunakan alamat email bawaan sistem.');
+      return;
+    }
+
     if (cleanNew !== cleanConfirm) {
       setEmailError('Konfirmasi email baru tidak sesuai.');
       return;
@@ -152,15 +186,12 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     try {
       const res = await updateSecurityEmail(cleanNew);
       if (!res.ok) {
-        setEmailError(res.error || 'Gagal mengirim permintaan pembaruan email.');
+        setEmailError(res.error || 'Gagal mengirim permintaan verifikasi email.');
       } else {
         setEmailNotice(
-          'Tautan konfirmasi telah dikirim ke email baru. Mohon periksa kotak masuk untuk menyelesaikan verifikasi.'
+          `Tautan verifikasi telah dikirim ke ${cleanNew}. Silakan periksa kotak masuk email Anda dan klik tautan untuk mengonfirmasi akun.`
         );
-        // Switch to PIN if not done
-        if (!securitySetup.pinCompleted) {
-          setActiveTab('pin');
-        }
+        setResendCooldown(60);
       }
     } finally {
       setEmailLoading(false);
@@ -190,9 +221,15 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
       if (!res.ok) {
         setPinError(res.error || 'Gagal menyimpan PIN baru.');
       } else {
-        setPinNotice('PIN baru telah disimpan.');
+        setPinNotice('PIN baru telah disimpan. Keamanan akun lengkap.');
         setNewPin('');
         setConfirmPin('');
+
+        // Auto-redirect to destination dashboard
+        setTimeout(() => {
+          const dest = role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin';
+          navigate(dest, { replace: true });
+        }, 900);
       }
     } finally {
       setPinLoading(false);
@@ -203,13 +240,13 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="security-setup-title"
+      aria-label="Keamanan Akun"
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto"
     >
       <div className="relative w-full max-w-[620px] bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] overflow-hidden my-6">
         {/* Header */}
         <div className="p-6 md:p-8 bg-[#1E2230] text-white">
-          <div className="flex items-center justify-between gap-4 mb-2">
+          <div className="flex items-center justify-between gap-4">
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-[#FFBD59]/20 text-[#FFBD59]">
               Wajib: Keamanan Akun
             </span>
@@ -217,17 +254,6 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
               Peran: <strong className="text-white capitalize">{role?.replace('_', ' ')}</strong>
             </span>
           </div>
-
-          <h2
-            id="security-setup-title"
-            className="text-[24px] md:text-[28px] font-condensed font-bold leading-tight"
-          >
-            Lengkapi Keamanan Akun
-          </h2>
-          <p className="text-[14px] text-[#A6ADB8] mt-1 leading-relaxed">
-            Demi keamanan sistem MyBengkel, Anda wajib memperbarui informasi keamanan akun sebelum
-            melanjutkan.
-          </p>
 
           {/* Progress Bar & Counter */}
           <div className="mt-5 pt-4 border-t border-white/10">
@@ -300,9 +326,21 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
 
           <button
             type="button"
-            onClick={() => setActiveTab('pin')}
+            disabled={!securitySetup.emailCompleted}
+            onClick={() => {
+              if (securitySetup.emailCompleted) {
+                setActiveTab('pin');
+              }
+            }}
+            title={
+              !securitySetup.emailCompleted
+                ? 'Selesaikan konfirmasi email terlebih dahulu sebelum membuat PIN baru'
+                : 'Buat PIN 12 digit'
+            }
             className={`flex-1 py-3 px-2 text-center text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
-              activeTab === 'pin'
+              !securitySetup.emailCompleted
+                ? 'opacity-50 cursor-not-allowed border-transparent text-[#9DA4B4] bg-[#F7F8FA]'
+                : activeTab === 'pin'
                 ? 'border-[#1E2230] text-[#1E2230] font-semibold bg-white'
                 : 'border-transparent text-[#646B7C] hover:text-[#1E2230]'
             }`}
@@ -318,7 +356,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
             </span>
             <span>PIN Baru</span>
             <span className="hidden sm:inline text-[11px] opacity-75">
-              ({securitySetup.pinCompleted ? 'Selesai' : 'Belum'})
+              ({securitySetup.pinCompleted ? 'Selesai' : !securitySetup.emailCompleted ? 'Terkunci' : 'Belum'})
             </span>
           </button>
         </div>
@@ -528,26 +566,69 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
               <div className="p-3 rounded-[6px] bg-[#F7F8FA] border border-[#EEF0F4] text-xs text-[#646B7C] space-y-1">
                 <p className="font-semibold text-[#1E2230]">Catatan Konfirmasi Email:</p>
                 <p>
-                  Sesuai standar keamanan Supabase Auth, tautan verifikasi akan dikirimkan. Langkah
-                  ini tercatat selesai setelah email baru dikonfirmasi.
+                  Sesuai standar keamanan Supabase Auth, tautan verifikasi akan dikirimkan. Langkah 3
+                  (Pembuatan PIN Baru) akan terbuka secara otomatis setelah Anda mengonfirmasi email
+                  melalui tautan yang dikirim.
                 </p>
               </div>
 
               {emailError && (
-                <div className="p-3 rounded-[6px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A]">
-                  {emailError}
+                <div className="space-y-2">
+                  <div className="p-3 rounded-[6px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A] leading-relaxed">
+                    {emailError}
+                  </div>
+                  <div className="p-3 rounded-[6px] bg-[#F7F8FA] border border-[#EEF0F4] text-[11px] text-[#646B7C] flex flex-wrap items-center justify-between gap-2">
+                    <span>Sedang menguji lokal tanpa SMTP aktif?</span>
+                    <Link
+                      to={`/auth/verify-email?role=${role}`}
+                      className="font-semibold text-[#1E2230] underline hover:text-[#2C3246]"
+                    >
+                      Lanjutkan dengan Simulasi Verifikasi
+                    </Link>
+                  </div>
                 </div>
               )}
 
               {emailNotice && (
-                <div className="p-3 rounded-[6px] bg-[#F0FDF4] border border-[#BBF7D0] text-xs text-[#16A34A]">
-                  {emailNotice}
+                <div className="p-4 rounded-[8px] bg-[#F0FDF4] border border-[#BBF7D0] text-xs text-[#16A34A] space-y-2">
+                  <div className="font-medium">{emailNotice}</div>
+                  <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-[#BBF7D0]/50 text-[11px]">
+                    <span className="text-[#646B7C]">
+                      Belum menerima email? Tunggu{' '}
+                      {resendCooldown > 0 ? (
+                        <strong className="text-[#1E2230]">{resendCooldown} detik</strong>
+                      ) : (
+                        'sebentar'
+                      )}
+                    </span>
+                    <Link
+                      to={`/auth/verify-email?role=${role}`}
+                      className="font-semibold text-[#1E2230] underline hover:text-[#2C3246]"
+                    >
+                      Buka Konfirmasi Email Langsung (Simulasi)
+                    </Link>
+                  </div>
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-end">
-                <ActionButton type="submit" intent="start" disabled={emailLoading}>
-                  {emailLoading ? 'Mengirim...' : 'Kirim Tautan Verifikasi Email'}
+              <div className="pt-2 flex items-center justify-between gap-3">
+                {resendCooldown > 0 ? (
+                  <span className="text-xs text-[#646B7C]">
+                    Kirim ulang dalam <strong className="tabular-nums">{resendCooldown}s</strong>
+                  </span>
+                ) : (
+                  <span />
+                )}
+                <ActionButton
+                  type="submit"
+                  intent="start"
+                  disabled={emailLoading || resendCooldown > 0}
+                >
+                  {emailLoading
+                    ? 'Mengirim...'
+                    : resendCooldown > 0
+                    ? `Kirim Ulang (${resendCooldown}s)`
+                    : 'Kirim Tautan Verifikasi Email'}
                 </ActionButton>
               </div>
             </form>

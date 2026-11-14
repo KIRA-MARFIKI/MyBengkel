@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth, authenticateCredentials } from '../lib/mockAuth';
 import { resetBodyScrollIfIdle } from '../components/admin/island/IslandSystem';
-import { EyeIcon, EyeOffIcon, RefreshIcon } from '../components/admin/ActionButton';
+import { EyeIcon, EyeOffIcon, RefreshIcon, ActionButton } from '../components/admin/ActionButton';
+import { CenterDialog } from '../components/admin/CenterDialog';
 import { siteContent } from '../content/site';
 
 const CAPTCHA_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -19,8 +20,90 @@ function generateCaptchaCode(length = 6): string {
 export const Login: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, requestPasswordReset, requestPinReset } = useAuth();
   const next = searchParams.get('next') || '/';
+
+  // Forgot Password modal state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPwEmail, setForgotPwEmail] = useState('');
+  const [forgotPwNotice, setForgotPwNotice] = useState('');
+  const [forgotPwError, setForgotPwError] = useState('');
+  const [forgotPwLoading, setForgotPwLoading] = useState(false);
+  const [forgotPwCooldown, setForgotPwCooldown] = useState(0);
+
+  // Forgot PIN modal state
+  const [showForgotPin, setShowForgotPin] = useState(false);
+  const [forgotPinEmail, setForgotPinEmail] = useState('');
+  const [forgotPinNotice, setForgotPinNotice] = useState('');
+  const [forgotPinError, setForgotPinError] = useState('');
+  const [forgotPinLoading, setForgotPinLoading] = useState(false);
+  const [forgotPinCooldown, setForgotPinCooldown] = useState(0);
+
+  useEffect(() => {
+    if (forgotPwCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setForgotPwCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [forgotPwCooldown]);
+
+  useEffect(() => {
+    if (forgotPinCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setForgotPinCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [forgotPinCooldown]);
+
+  const handleSendForgotPassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (forgotPwCooldown > 0) return;
+    setForgotPwError('');
+    setForgotPwNotice('');
+
+    const clean = forgotPwEmail.trim().toLowerCase();
+    if (!clean) {
+      setForgotPwError('Email wajib diisi.');
+      return;
+    }
+
+    setForgotPwLoading(true);
+    try {
+      const res = await requestPasswordReset(clean);
+      setForgotPwNotice(res.message);
+      setForgotPwCooldown(60);
+    } catch {
+      setForgotPwNotice('Jika email terdaftar, kami akan mengirimkan tautan pemulihan password.');
+      setForgotPwCooldown(60);
+    } finally {
+      setForgotPwLoading(false);
+    }
+  };
+
+  const handleSendForgotPin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (forgotPinCooldown > 0) return;
+    setForgotPinError('');
+    setForgotPinNotice('');
+
+    const clean = forgotPinEmail.trim().toLowerCase();
+    if (!clean) {
+      setForgotPinError('Email wajib diisi.');
+      return;
+    }
+
+    setForgotPinLoading(true);
+    try {
+      const res = await requestPinReset(clean);
+      setForgotPinNotice(res.message);
+      setForgotPinCooldown(60);
+    } catch {
+      setForgotPinNotice('Jika email terdaftar, instruksi pemulihan PIN telah dikirim.');
+      setForgotPinCooldown(60);
+    } finally {
+      setForgotPinLoading(false);
+    }
+  };
 
   useEffect(() => {
     resetBodyScrollIfIdle();
@@ -134,10 +217,13 @@ export const Login: React.FC = () => {
       return;
     }
 
-    if (result.role === 'admin') {
-      login('admin', { email: email.trim() });
+    if (result.role === 'admin' || result.role === 'master_admin') {
+      login(result.role, result.profile || { email: email.trim() });
       const destination = next && next.startsWith('/admin') ? next : '/admin';
       navigate(destination);
+    } else if (result.role === 'master_helpdesk') {
+      login('master_helpdesk', result.profile);
+      navigate('/admin/helpdesk');
     } else {
       login('customer', result.profile);
       const destination =
@@ -378,11 +464,32 @@ export const Login: React.FC = () => {
               )}
             </div>
 
-            {/* Lupa kata sandi: plain text, not clickable */}
-            <div>
-              <span className="text-sm font-sans text-muted cursor-not-allowed select-none">
-                Lupa kata sandi (Segera hadir)
-              </span>
+            {/* Lupa password & Lupa PIN actions */}
+            <div className="flex items-center justify-between text-xs font-sans pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotPwEmail(email.trim());
+                  setForgotPwNotice('');
+                  setForgotPwError('');
+                  setShowForgotPassword(true);
+                }}
+                className="text-muted hover:text-carbon underline cursor-pointer transition-colors"
+              >
+                Lupa Password?
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotPinEmail(email.trim());
+                  setForgotPinNotice('');
+                  setForgotPinError('');
+                  setShowForgotPin(true);
+                }}
+                className="text-muted hover:text-carbon underline cursor-pointer transition-colors"
+              >
+                Lupa PIN?
+              </button>
             </div>
 
             {/* Submit button: carbon background, paper text, full width */}
@@ -410,6 +517,149 @@ export const Login: React.FC = () => {
           </form>
         </div>
       </div>
+      {/* Dialog Lupa Password */}
+      <CenterDialog
+        isOpen={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        title="Lupa Password"
+        subtitle="Masukkan email terdaftar untuk menerima tautan pemulihan kata sandi."
+        maxWidthClass="max-w-[440px]"
+        footer={
+          <>
+            <ActionButton
+              type="button"
+              intent="cancel"
+              onClick={() => setShowForgotPassword(false)}
+            >
+              Tutup
+            </ActionButton>
+            <ActionButton
+              type="button"
+              intent="start"
+              disabled={forgotPwLoading || forgotPwCooldown > 0}
+              onClick={() => handleSendForgotPassword()}
+            >
+              {forgotPwLoading
+                ? 'Mengirim...'
+                : forgotPwCooldown > 0
+                ? `Tunggu ${forgotPwCooldown}s`
+                : 'Kirim Link Reset Password'}
+            </ActionButton>
+          </>
+        }
+      >
+        <form onSubmit={handleSendForgotPassword} className="space-y-4">
+          <p className="text-xs text-[#646B7C]">
+            Tautan pemulihan kata sandi berlaku sementara. Periksa kotak masuk atau spam email Anda
+            setelah mengirim.
+          </p>
+
+          <div>
+            <label
+              htmlFor="forgot-pw-email-input"
+              className="block text-xs font-semibold text-[#1E2230] mb-1"
+            >
+              Email Akun Terdaftar
+            </label>
+            <input
+              id="forgot-pw-email-input"
+              type="email"
+              value={forgotPwEmail}
+              onChange={(e) => {
+                setForgotPwEmail(e.target.value);
+                if (forgotPwError) setForgotPwError('');
+              }}
+              placeholder="nama@domain.com"
+              className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+              autoFocus
+            />
+          </div>
+
+          {forgotPwError && (
+            <div className="p-3 rounded-[6px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A]">
+              {forgotPwError}
+            </div>
+          )}
+
+          {forgotPwNotice && (
+            <div className="p-3 rounded-[6px] bg-[#F0FDF4] border border-[#BBF7D0] text-xs text-[#16A34A] leading-relaxed">
+              {forgotPwNotice}
+            </div>
+          )}
+        </form>
+      </CenterDialog>
+
+      {/* Dialog Lupa PIN */}
+      <CenterDialog
+        isOpen={showForgotPin}
+        onClose={() => setShowForgotPin(false)}
+        title="Lupa PIN"
+        subtitle="Masukkan email terdaftar untuk menerima instruksi pemulihan PIN."
+        maxWidthClass="max-w-[440px]"
+        footer={
+          <>
+            <ActionButton
+              type="button"
+              intent="cancel"
+              onClick={() => setShowForgotPin(false)}
+            >
+              Tutup
+            </ActionButton>
+            <ActionButton
+              type="button"
+              intent="start"
+              disabled={forgotPinLoading || forgotPinCooldown > 0}
+              onClick={() => handleSendForgotPin()}
+            >
+              {forgotPinLoading
+                ? 'Mengirim...'
+                : forgotPinCooldown > 0
+                ? `Tunggu ${forgotPinCooldown}s`
+                : 'Kirim Link Reset PIN'}
+            </ActionButton>
+          </>
+        }
+      >
+        <form onSubmit={handleSendForgotPin} className="space-y-4">
+          <p className="text-xs text-[#646B7C]">
+            Tautan pemulihan PIN akan dikirimkan ke email terdaftar Anda dengan masa berlaku 15
+            menit.
+          </p>
+
+          <div>
+            <label
+              htmlFor="forgot-pin-email-input"
+              className="block text-xs font-semibold text-[#1E2230] mb-1"
+            >
+              Email Akun Terdaftar
+            </label>
+            <input
+              id="forgot-pin-email-input"
+              type="email"
+              value={forgotPinEmail}
+              onChange={(e) => {
+                setForgotPinEmail(e.target.value);
+                if (forgotPinError) setForgotPinError('');
+              }}
+              placeholder="nama@domain.com"
+              className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+              autoFocus
+            />
+          </div>
+
+          {forgotPinError && (
+            <div className="p-3 rounded-[6px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A]">
+              {forgotPinError}
+            </div>
+          )}
+
+          {forgotPinNotice && (
+            <div className="p-3 rounded-[6px] bg-[#F0FDF4] border border-[#BBF7D0] text-xs text-[#16A34A] leading-relaxed">
+              {forgotPinNotice}
+            </div>
+          )}
+        </form>
+      </CenterDialog>
     </div>
   );
 };

@@ -31,6 +31,7 @@ export type AuditActorRole =
   | 'admin'
   | 'master_gudang'
   | 'master_admin'
+  | 'master_helpdesk'
   | 'admin_gudang'
   | 'mekanik'
   | 'sistem'

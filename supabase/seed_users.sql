@@ -75,20 +75,20 @@ $$;
 do $$
 declare
   -- Target Account 1: Admin
-  v_admin_email text := 'mybenngkeladmin@mybengkel.com';
-  v_admin_pw    text := 'admin!@#';
+  v_admin_email text := 'admin@mybengkel.com';
+  v_admin_pw    text := 'admin123';
   v_admin_pin   text := '123456789012';
   v_admin_uid   uuid;
 
   -- Target Account 2: Master Admin
-  v_master_email text := 'masteradminmybengkel@mybengkel.com';
-  v_master_pw    text := 'masteradmin!@#';
-  v_master_pin   text := '012345678912';
+  v_master_email text := 'masteradmin@mybengkel.com';
+  v_master_pw    text := 'masteradmin123';
+  v_master_pin   text := '123456789012';
   v_master_uid   uuid;
 
   -- Target Account 3: Helpdesk
-  v_hd_email text := 'helpdeskmybengkel@mybengkel.com';
-  v_hd_pw    text := 'helpdesk!@#';
+  v_hd_email text := 'helpdesk@gmail.com';
+  v_hd_pw    text := 'helpdesk123';
   v_hd_pin   text := '123456789012';
   v_hd_uid   uuid;
 begin

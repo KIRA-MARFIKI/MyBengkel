@@ -35,6 +35,44 @@ export const DUMMY_MASTER = {
 
 export const DUMMY_MASTER_GUDANG = DUMMY_MASTER;
 
+export const DEFAULT_HELPDESK_EMAIL = 'helpdesk@gmail.com';
+
+export const SEED_ACCOUNTS = {
+  admin: {
+    id: 'ADM-001',
+    nama: 'Admin MyBengkel',
+    email: 'admin@mybengkel.com',
+    password: 'admin123',
+    pin: '123456789012',
+    role: 'admin' as const,
+  },
+  masterAdmin: {
+    id: 'MA-001',
+    nama: 'Master Admin MyBengkel',
+    email: 'masteradmin@mybengkel.com',
+    password: 'masteradmin123',
+    pin: '123456789012',
+    role: 'master_admin' as const,
+  },
+  helpdesk: {
+    id: 'HD-001',
+    nama: 'Master Helpdesk MyBengkel',
+    email: 'helpdesk@gmail.com',
+    password: 'helpdesk123',
+    pin: '123456789012',
+    role: 'master_helpdesk' as const,
+  },
+};
+
+export const DUMMY_MASTER_HELPDESK = {
+  id: 'HD-001',
+  nama: 'Master Helpdesk',
+  email: DEFAULT_HELPDESK_EMAIL,
+  password: 'helpdesk123',
+  pin: '123456789012',
+  role: 'master_helpdesk' as const,
+};
+
 export type WarehouseRole = 'admin_gudang' | 'master_gudang';
 
 export interface VerifiedWarehouseUser {

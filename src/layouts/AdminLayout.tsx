@@ -4,6 +4,7 @@ import { useAuth } from '../lib/mockAuth';
 import { useActionCounts } from '../lib/actionCounts';
 import { ActionButton } from '../components/admin/ActionButton';
 import { CommandPalette } from '../components/admin/CommandPalette';
+import SecuritySetupModal from '../components/admin/SecuritySetupModal';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import {
   ActionIslandProvider,
@@ -106,11 +107,17 @@ const TOP_ITEMS: { id: TopNavId; label: string; to: string }[] = [
   { id: 'gudang', label: 'Gudang', to: '/admin/v2/purchase-requests' },
   { id: 'penjualan', label: 'Penjualan', to: '/admin/penjualan' },
   { id: 'laporan', label: 'Laporan', to: '/admin/laporan' },
-  { id: 'helpdesk', label: 'Help Desk', to: '/admin/helpdesk' },
+  { id: 'helpdesk', label: 'Helpdesk Center', to: '/admin/helpdesk' },
 ];
 
 const AdminShell: React.FC = () => {
-  const { logout } = useAuth();
+  const { role, user, logout, securitySetup } = useAuth();
+  const isHelpdeskOnly = role === 'master_helpdesk';
+  const isPrivileged = role === 'admin' || role === 'master_admin' || role === 'master_helpdesk';
+  const showSecurityModal = isPrivileged && securitySetup.mustCompleteSetup;
+  const visibleTopItems = isHelpdeskOnly
+    ? TOP_ITEMS.filter((item) => item.id === 'helpdesk')
+    : TOP_ITEMS;
   const navigate = useNavigate();
   const location = useLocation();
   const counts = useActionCounts();
@@ -174,10 +181,6 @@ const AdminShell: React.FC = () => {
 
   return (
     <div className="admin-theme min-h-screen font-sans bg-[#EEF0F4] text-[#1E2230]">
-      <div className="px-4 py-1.5 text-center border-b border-[#D9DDE6] bg-white/70 font-sans text-[13px] text-[#646B7C]">
-        Mode prototype: data contoh, perubahan tersimpan di browser ini. Tekan <kbd>Ctrl</kbd>+<kbd>K</kbd> untuk cari.
-      </div>
-
       <div className="max-w-[1360px] mx-auto px-4 pb-8 pt-4 md:px-6">
         <header
           data-admin-topbar
@@ -186,7 +189,7 @@ const AdminShell: React.FC = () => {
           <nav aria-label="Navigasi utama" className="flex-1 min-w-0 overflow-x-auto">
             <div ref={topNavContainerRef} className="relative inline-flex items-stretch min-h-[56px]">
               <NavIsland containerRef={topNavContainerRef} activeKey={activeTop} />
-              {TOP_ITEMS.map((item, idx) => {
+              {visibleTopItems.map((item, idx) => {
                 const active = activeTop === item.id;
                 return (
                   <React.Fragment key={item.id}>
@@ -213,29 +216,31 @@ const AdminShell: React.FC = () => {
           </nav>
 
           <div className="flex items-center gap-2.5 shrink-0 bg-white rounded-full px-3 py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-[#EEF0F4]">
-            <Link
-              to="/admin"
-              aria-label={bellLabel}
-              title={bellLabel}
-              className="relative inline-flex items-center justify-center w-9 h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path
-                  d="M10 2.5C7.1 2.5 4.8 4.8 4.8 7.7V11.3L3.2 13.3V14.4H16.8V13.3L15.2 11.3V7.7C15.2 4.8 12.9 2.5 10 2.5Z"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinejoin="round"
-                />
-                <path d="M8.2 15C8.5 16 9.2 16.6 10 16.6C10.8 16.6 11.5 16 11.8 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              <data
-                value={counts.total}
-                aria-hidden="true"
-                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F2466F] text-white font-sans text-[11px] font-semibold flex items-center justify-center leading-none tabular-nums"
+            {!isHelpdeskOnly && (
+              <Link
+                to="/admin"
+                aria-label={bellLabel}
+                title={bellLabel}
+                className="relative inline-flex items-center justify-center w-9 h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
               >
-                <RollingNumber value={counts.total} />
-              </data>
-            </Link>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path
+                    d="M10 2.5C7.1 2.5 4.8 4.8 4.8 7.7V11.3L3.2 13.3V14.4H16.8V13.3L15.2 11.3V7.7C15.2 4.8 12.9 2.5 10 2.5Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinejoin="round"
+                  />
+                  <path d="M8.2 15C8.5 16 9.2 16.6 10 16.6C10.8 16.6 11.5 16 11.8 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <data
+                  value={counts.total}
+                  aria-hidden="true"
+                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F2466F] text-white font-sans text-[11px] font-semibold flex items-center justify-center leading-none tabular-nums"
+                >
+                  <RollingNumber value={counts.total} />
+                </data>
+              </Link>
+            )}
 
             <Link
               to="/admin/helpdesk"
@@ -275,12 +280,34 @@ const AdminShell: React.FC = () => {
               {avatarOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 z-50 min-w-[150px] bg-white rounded-[14px] border border-[#EEF0F4] shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-1.5"
+                  className="absolute right-0 top-full mt-2 z-50 min-w-[190px] bg-white rounded-[14px] border border-[#EEF0F4] shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-2 space-y-2"
                 >
+                  <div className="px-2 py-1 border-b border-[#EEF0F4]">
+                    <div className="text-xs font-semibold text-[#1E2230]">
+                      {user?.name || (isHelpdeskOnly ? 'Master Helpdesk' : 'Admin Bengkel')}
+                    </div>
+                    <div className="text-[11px] text-[#646B7C] truncate">{user?.email}</div>
+                    <span
+                      className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        isHelpdeskOnly
+                          ? 'bg-[#3DA5F5]/10 text-[#1D6FC4]'
+                          : role === 'master_admin'
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-[#FFBD59]/20 text-[#B45309]'
+                      }`}
+                    >
+                      {isHelpdeskOnly
+                        ? 'Master Helpdesk'
+                        : role === 'master_admin'
+                        ? 'Master Admin'
+                        : 'Administrator'}
+                    </span>
+                  </div>
+
                   <ActionButton
                     intent="cancel"
                     onClick={handleLogout}
-                    className="w-full justify-start"
+                    className="w-full justify-start text-xs"
                   >
                     Keluar
                   </ActionButton>
@@ -308,6 +335,7 @@ const AdminShell: React.FC = () => {
       </div>
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+      {showSecurityModal && <SecuritySetupModal isOpen={true} />}
     </div>
   );
 };

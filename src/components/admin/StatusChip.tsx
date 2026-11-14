@@ -9,6 +9,7 @@ interface StatusChipProps {
 
 const CORAL_STATUSES = new Set([
   'Kritis',
+  'kritis',
   'Batal',
   'batal',
   'Ditolak',
@@ -18,8 +19,12 @@ const CORAL_STATUSES = new Set([
   'Kedaluwarsa',
   'kedaluwarsa',
   'Prioritas Tinggi',
+  'Prioritas Kritis',
+  'Prioritas tinggi',
+  'Prioritas kritis',
   'Belum pulang',
   'Perlu tindakan',
+  'dieskalasi',
 ]);
 
 const GREEN_STATUSES = new Set([
@@ -35,8 +40,13 @@ const GREEN_STATUSES = new Set([
   'sampai',
   'Selesai',
   'selesai',
+  'ditutup',
   'Dibayar',
   'dibayar',
+  'rendah',
+  'Rendah',
+  'Prioritas Rendah',
+  'Prioritas rendah',
 ]);
 
 const BLUE_STATUSES = new Set([
@@ -47,6 +57,11 @@ const BLUE_STATUSES = new Set([
   'Berjalan',
   'berjalan',
   'Pemasukan lain',
+  'ditinjau',
+  'dalam_penanganan',
+  'normal',
+  'Prioritas Normal',
+  'Prioritas normal',
 ]);
 
 const AMBER_STATUSES = new Set([
@@ -65,6 +80,9 @@ const AMBER_STATUSES = new Set([
   'Pengeluaran operasional',
   'Menunggu pembayaran',
   'menunggu_pembayaran',
+  'baru',
+  'menunggu_pelapor',
+  'dibuka_kembali',
 ]);
 
 const DISPLAY_LABEL_MAP: Record<string, string> = {
@@ -87,6 +105,17 @@ const DISPLAY_LABEL_MAP: Record<string, string> = {
   menunggu_pembayaran: 'Menunggu pembayaran',
   dibatalkan: 'Dibatalkan',
   kedaluwarsa: 'Kedaluwarsa',
+  baru: 'Baru',
+  ditinjau: 'Ditinjau',
+  dalam_penanganan: 'Dalam penanganan',
+  menunggu_pelapor: 'Menunggu pelapor',
+  dieskalasi: 'Dieskalasi',
+  ditutup: 'Ditutup',
+  dibuka_kembali: 'Dibuka kembali',
+  kritis: 'Kritis',
+  tinggi: 'Tinggi',
+  normal: 'Normal',
+  rendah: 'Rendah',
 };
 
 function resolveChipStyle(status: string, needsAction?: boolean): { bg: string; color: string } {

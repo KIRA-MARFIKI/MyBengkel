@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CenterDialog } from './CenterDialog';
 import { ActionButton } from './ActionButton';
 import { FormField } from './FormField';
@@ -163,6 +164,20 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
             </FormField>
           );
         })}
+
+        {fields.some(
+          (f) =>
+            f.name.toLowerCase().includes('pin') || f.label.toLowerCase().includes('pin')
+        ) && (
+          <div className="text-right pt-0.5">
+            <Link
+              to="/auth/reset-pin"
+              className="text-xs text-[#646B7C] hover:text-[#1E2230] underline"
+            >
+              Lupa PIN?
+            </Link>
+          </div>
+        )}
 
         {(error || isLocked) && (
           <p role="alert" className="text-[13px] font-medium text-[#D62E5A]">

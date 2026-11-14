@@ -11,32 +11,7 @@ import { flushSync } from 'react-dom';
 import { gsap, Flip } from '../../../lib/gsap';
 
 // Dev-only frame-time probe (stripped in production builds)
-export function probe<T extends gsap.core.Timeline | gsap.core.Tween>(label: string, tl: T): T {
-  if (!import.meta.env.DEV) return tl;
-  const dt: number[] = [];
-  let last = 0;
-  const prevStart = tl.eventCallback('onStart');
-  const prevUpdate = tl.eventCallback('onUpdate');
-  const prevComplete = tl.eventCallback('onComplete');
-
-  tl.eventCallback('onStart', () => {
-    if (typeof prevStart === 'function') prevStart();
-    last = performance.now();
-  });
-  tl.eventCallback('onUpdate', () => {
-    if (typeof prevUpdate === 'function') prevUpdate();
-    const now = performance.now();
-    dt.push(now - last);
-    last = now;
-  });
-  tl.eventCallback('onComplete', () => {
-    if (typeof prevComplete === 'function') prevComplete();
-    if (!dt.length) return;
-    const s = [...dt].sort((a, b) => a - b);
-    const p95 = s[Math.floor(s.length * 0.95)] ?? 0;
-    const max = s[s.length - 1] ?? 0;
-    console.table([{ label, frames: s.length, p95: +p95.toFixed(1), max: +max.toFixed(1) }]);
-  });
+export function probe<T extends gsap.core.Timeline | gsap.core.Tween>(_label: string, tl: T): T {
   return tl;
 }
 

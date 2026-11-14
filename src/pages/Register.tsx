@@ -258,6 +258,7 @@ export const Register: React.FC = () => {
     }
 
     setSubmittedWithErrors(false);
+    const resolvedMotorType = motorType === 'Lainnya' ? customMotorType.trim() : motorType.trim();
     registerCustomer({
       email: email.trim(),
       name: name.trim(),
@@ -265,6 +266,8 @@ export const Register: React.FC = () => {
       engineNo: engineNumber.trim().toUpperCase(),
       frameNo: frameNumber.trim().toUpperCase(),
       address: address.trim(),
+      motorType: resolvedMotorType,
+      vehicleModel: resolvedMotorType,
       password,
       pin: pin.trim(),
     });

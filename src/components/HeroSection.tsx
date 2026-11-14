@@ -1,10 +1,23 @@
 import React, { useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { siteContent } from '../content/site';
 import { gsap } from '../lib/gsap';
 import { ArrowRightIcon } from './admin/ActionButton';
+import { useAuth } from '../lib/mockAuth';
+
+function getInitials(name?: string, email?: string): string {
+  const source = (name && name.trim()) || (email && email.trim()) || '?';
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return source.slice(0, 2).toUpperCase();
+}
 
 export const HeroSection: React.FC = () => {
   const heroRef = useRef<HTMLDivElement>(null);
+  const { isLoggedIn, role, user, logout } = useAuth();
+  const isCustomer = isLoggedIn && role === 'customer' && Boolean(user);
 
   useEffect(() => {
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -67,11 +80,49 @@ export const HeroSection: React.FC = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-carbon/70 via-transparent to-carbon/70" />
       </div>
 
-      {/* Top Left Wordmark: 20px, paper, not a link */}
-      <header className="relative z-10 w-full px-6 pt-6 md:px-12 md:pt-8">
+      {/* Top Header: Brand on left, Auth controls on right */}
+      <header className="relative z-10 w-full px-6 pt-6 md:px-12 md:pt-8 flex items-center justify-between">
         <span className="font-condensed font-bold text-[20px] tracking-normal text-paper select-none">
           {siteContent.brand}
         </span>
+
+        {isCustomer ? (
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-paper/[0.08] border border-steel/60 text-paper">
+              <div
+                aria-hidden="true"
+                className="w-7 h-7 rounded-full bg-signal text-carbon font-condensed font-bold text-xs flex items-center justify-center select-none"
+              >
+                {getInitials(user?.name, user?.email)}
+              </div>
+              <span className="font-sans text-sm font-medium text-paper max-w-[120px] sm:max-w-[200px] truncate">
+                {user?.name || user?.email}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              className="font-sans text-xs font-medium text-paper/80 hover:text-paper px-3 py-1.5 rounded-[4px] border border-steel/50 hover:border-steel bg-transparent hover:bg-paper/[0.06] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+            >
+              Keluar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              to="/login"
+              className="font-sans text-sm font-medium text-paper/90 hover:text-paper px-3 py-1.5 rounded-[4px] border border-steel/60 hover:border-steel bg-paper/[0.04] hover:bg-paper/[0.08] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+            >
+              Masuk
+            </Link>
+            <Link
+              to="/register"
+              className="font-sans text-sm font-medium text-carbon bg-paper hover:bg-paper/90 px-3.5 py-1.5 rounded-[4px] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+            >
+              Daftar
+            </Link>
+          </div>
+        )}
       </header>
 
       {/* Headline & Subtitle centered */}

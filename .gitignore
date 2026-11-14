@@ -11,8 +11,19 @@ build/
 # Vite cache
 .vite/
 
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Supabase local CLI cache
+supabase/.temp/
+.temp/
+
 # Environment files
 .env
 .env.*
 !.env.example
+
 

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { gsap } from '../lib/gsap';
+import { useAuth } from '../lib/mockAuth';
 
 interface NavItem {
   name: string;
@@ -7,13 +8,20 @@ interface NavItem {
   targetId: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
+const DEFAULT_NAV_ITEMS: NavItem[] = [
   { name: 'Home', href: '#top', targetId: 'top' },
   { name: 'About me', href: '#tentang', targetId: 'tentang' },
   { name: 'Booking', href: '#booking', targetId: 'booking' },
 ];
 
 export const DynamicIsland: React.FC = () => {
+  const { isLoggedIn, role } = useAuth();
+  const isCustomer = isLoggedIn && role === 'customer';
+
+  const navItems = useMemo<NavItem[]>(() => {
+    return DEFAULT_NAV_ITEMS;
+  }, []);
+
   const [activeSection, setActiveSection] = useState<string>('top');
   const [isCompact, setIsCompact] = useState<boolean>(false);
   const [manuallyExpanded, setManuallyExpanded] = useState<boolean>(false);
@@ -201,7 +209,7 @@ export const DynamicIsland: React.FC = () => {
           style={{ display: isCompact ? 'none' : 'flex', opacity: isCompact ? 0 : 1 }}
           className="items-center gap-6"
         >
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive = activeSection === item.targetId;
             return (
               <a

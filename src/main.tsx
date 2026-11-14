@@ -9,6 +9,21 @@ import './index.css';
 import { AuthProvider } from './lib/mockAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
+// Prevent third-party browser extension crash (e.g. AB Download Manager Shortcut-*.js)
+// when browser autofill fires key events where e.key is undefined
+const silenceInvalidKeyEvents = (e: KeyboardEvent) => {
+  if (typeof e.key !== 'string') {
+    try {
+      Object.defineProperty(e, 'key', { value: '', configurable: true });
+    } catch {
+      // ignore
+    }
+    e.stopImmediatePropagation();
+  }
+};
+window.addEventListener('keydown', silenceInvalidKeyEvents, true);
+window.addEventListener('keyup', silenceInvalidKeyEvents, true);
+
 AOS.init({
   once: true,
   duration: 600,
@@ -20,7 +35,7 @@ AOS.init({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
           <App />
         </AuthProvider>

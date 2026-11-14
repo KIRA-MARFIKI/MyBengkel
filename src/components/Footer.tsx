@@ -1,9 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { siteContent } from '../content/site';
+import { useAuth } from '../lib/mockAuth';
 
 export const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
+  const { isLoggedIn, role, user, logout } = useAuth();
+  const isCustomer = isLoggedIn && role === 'customer' && Boolean(user);
 
   return (
     <footer
@@ -40,25 +43,46 @@ export const Footer: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Column: Links Masuk and Daftar */}
+          {/* Right Column: Links Masuk and Daftar or Authenticated User */}
           <div>
             <span className="font-sans font-semibold text-xs text-muted block mb-3">
               Akun pelanggan
             </span>
-            <div className="flex flex-col gap-2">
-              <Link
-                to="/login"
-                className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
-              >
-                Masuk
-              </Link>
-              <Link
-                to="/register"
-                className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
-              >
-                Daftar
-              </Link>
-            </div>
+            {isCustomer ? (
+              <div className="flex flex-col gap-2">
+                <span className="font-sans text-sm text-carbon font-medium">
+                  {user?.name || user?.email}
+                </span>
+                <a
+                  href="#booking"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                >
+                  Jadwal Booking
+                </a>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="font-sans text-sm text-muted hover:text-carbon underline underline-offset-4 w-fit text-left focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                >
+                  Keluar
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Link
+                  to="/login"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                >
+                  Masuk
+                </Link>
+                <Link
+                  to="/register"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                >
+                  Daftar
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 

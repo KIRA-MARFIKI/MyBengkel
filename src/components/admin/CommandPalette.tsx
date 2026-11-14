@@ -149,19 +149,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose })
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const listLength = items?.length ?? 0;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
       onClose();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((a) => (items.length ? (a + 1) % items.length : 0));
+      setActive((a) => (listLength > 0 ? (a + 1) % listLength : 0));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActive((a) => (items.length ? (a - 1 + items.length) % items.length : 0));
+      setActive((a) => (listLength > 0 ? (a - 1 + listLength) % listLength : 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      run(items[active]);
+      if (items && listLength > 0 && items[active]) {
+        run(items[active]);
+      }
     } else if (e.key === 'Tab') {
       e.preventDefault();
     }
@@ -196,7 +199,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose })
             role="combobox"
             aria-expanded="true"
             aria-controls="cmd-list"
-            aria-activedescendant={items.length ? `cmd-opt-${active}` : undefined}
+            aria-activedescendant={items?.length ? `cmd-opt-${active}` : undefined}
             aria-label="Cari halaman, aksi, plat, atau nama"
             placeholder="Cari halaman, aksi, plat, atau nama..."
             value={query}

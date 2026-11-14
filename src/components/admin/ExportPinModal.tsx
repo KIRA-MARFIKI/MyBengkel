@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { CenterDialog } from './CenterDialog';
 import { ActionButton } from './ActionButton';
 import { FormField } from './FormField';
@@ -135,6 +136,15 @@ export const ExportPinModal: React.FC<ExportPinModalProps> = ({
             className="admin-input font-mono tracking-widest text-[16px] text-center"
           />
         </FormField>
+
+        <div className="text-right">
+          <Link
+            to="/auth/reset-pin"
+            className="text-xs text-[#646B7C] hover:text-[#1E2230] underline"
+          >
+            Lupa PIN?
+          </Link>
+        </div>
 
         {isLocked && (
           <div className="p-3 rounded-[10px] bg-[#FFF2F5] border border-[#FAD2DC] text-[12px] text-[#D62E5A] text-center font-medium">

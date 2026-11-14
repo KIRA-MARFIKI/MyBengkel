@@ -3,7 +3,9 @@ import {
   ARRIVAL_TARGET,
   Booking,
   Customer,
+  CorrectionRequest,
   HelpDeskTicket,
+  KnowledgeBaseArticle,
   LineFulfilState,
   ManualEntry,
   Mechanic,
@@ -32,8 +34,10 @@ import {
   dateToSlash,
   initialAttendance,
   initialBookings,
+  initialCorrectionRequests,
   initialCustomers,
   initialHelpDeskTickets,
+  initialKnowledgeBase,
   initialManualEntries,
   initialMechanics,
   initialPartHistory,
@@ -88,6 +92,8 @@ export interface PersistedAdminStore {
   sales: Sale[];
   attendance: MechanicAttendance[];
   tickets: HelpDeskTicket[];
+  correctionRequests: CorrectionRequest[];
+  knowledgeBase: KnowledgeBaseArticle[];
   manualEntries: ManualEntry[];
   stockOpnames: StockOpnameSession[];
   auditLogs: AuditLog[];
@@ -172,6 +178,8 @@ const createDefaultStore = (): PersistedAdminStore => ({
   sales: initialSales,
   attendance: initialAttendance,
   tickets: initialHelpDeskTickets,
+  correctionRequests: initialCorrectionRequests,
+  knowledgeBase: initialKnowledgeBase,
   manualEntries: initialManualEntries,
   stockOpnames: initialStockOpnames,
   auditLogs: initialAuditLogs,
@@ -280,7 +288,9 @@ const loadInitialStore = (): PersistedAdminStore => {
       purchaseRequests: normalizedPRs,
       sales: parsed.sales ?? defaults.sales,
       attendance: parsed.attendance ?? defaults.attendance,
-      tickets: parsed.tickets ?? defaults.tickets,
+      tickets: Array.isArray(parsed.tickets) && parsed.tickets.length > 0 ? parsed.tickets : defaults.tickets,
+      correctionRequests: Array.isArray(parsed.correctionRequests) ? parsed.correctionRequests : defaults.correctionRequests,
+      knowledgeBase: Array.isArray(parsed.knowledgeBase) ? parsed.knowledgeBase : defaults.knowledgeBase,
       manualEntries: parsed.manualEntries ?? defaults.manualEntries,
       stockOpnames: Array.isArray(parsed.stockOpnames) ? parsed.stockOpnames : defaults.stockOpnames,
       auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : defaults.auditLogs,
@@ -2399,6 +2409,9 @@ export interface CreateBookingInput {
   hour: string;
   complaint?: string;
   source: Booking['source'];
+  customerEmail?: string;
+  vehicleModel?: string;
+  createdAt?: string;
 }
 
 export function createBookingRecord(input: CreateBookingInput): Booking {
@@ -2408,7 +2421,7 @@ export function createBookingRecord(input: CreateBookingInput): Booking {
     4,
     state.bookings.map((b) => b.id)
   );
-  const now = formatNowTimestamp();
+  const now = input.createdAt || formatNowTimestamp();
   const newBooking: Booking = {
     id: newId,
     customerName: input.customerName.trim(),
@@ -2421,6 +2434,9 @@ export function createBookingRecord(input: CreateBookingInput): Booking {
     complaint: (input.complaint ?? '').trim(),
     status: 'menunggu',
     source: input.source,
+    customerEmail: input.customerEmail ? input.customerEmail.trim() : undefined,
+    vehicleModel: input.vehicleModel ? input.vehicleModel.trim() : undefined,
+    createdAt: now,
     history: [
       {
         time: now,
@@ -3080,10 +3096,27 @@ interface AdminContextType extends PersistedAdminStore {
   addAttendanceCheckIn: (mechanicId: string, date: string, time: string) => void;
   addTicket: (
     t: Omit<HelpDeskTicket, 'id' | 'createdAt' | 'thread'>,
-    firstMessage: string
+    firstMessage?: string
   ) => HelpDeskTicket;
   replyTicket: (id: string, text: string, sender?: string) => void;
   updateTicketStatus: (id: string, status: HelpDeskTicket['status']) => void;
+  updateTicket: (id: string, updates: Partial<HelpDeskTicket>) => void;
+  assignTicket: (id: string, staffName: string) => void;
+  resolveTicket: (id: string, resolutionNotes: string) => void;
+  reopenTicket: (id: string, reason: string) => void;
+  createCorrectionRequest: (
+    req: Omit<CorrectionRequest, 'id' | 'requestedAt' | 'status'>
+  ) => CorrectionRequest;
+  reviewCorrectionRequest: (
+    id: string,
+    decision: 'disetujui' | 'ditolak',
+    reviewerName: string,
+    notes?: string
+  ) => void;
+  addKnowledgeBaseArticle: (
+    article: Omit<KnowledgeBaseArticle, 'id' | 'updatedAt'>
+  ) => KnowledgeBaseArticle;
+  refreshDataStore: () => void;
   addManualEntry: (e: Omit<ManualEntry, 'id'>) => ManualEntry;
   correctManualEntry: (id: string, newEntry: Omit<ManualEntry, 'id'>, reason: string) => void;
   getPartStock: (partCode: string) => number;
@@ -3284,7 +3317,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addTicket = (
     t: Omit<HelpDeskTicket, 'id' | 'createdAt' | 'thread'>,
-    firstMessage: string
+    firstMessage?: string
   ): HelpDeskTicket => {
     const cur = getAdminStore();
     const newId = `TKT-${String(cur.tickets.length + 1).padStart(3, '0')}`;
@@ -3293,18 +3326,35 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ...t,
       id: newId,
       createdAt: nowStr,
-      thread: [
-        {
-          id: `msg-${Date.now()}`,
-          sender: t.reportedBy,
-          time: nowStr,
-          text: firstMessage,
-        },
-      ],
+      updatedAt: nowStr,
+      thread: firstMessage
+        ? [
+            {
+              id: `msg-${Date.now()}`,
+              sender: t.reportedBy,
+              time: nowStr,
+              text: firstMessage,
+            },
+          ]
+        : [],
     };
     saveStore({
       ...cur,
       tickets: [newTicket, ...cur.tickets],
+    });
+    recordAuditEvent({
+      actorId: 'HD-001',
+      actorName: 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'ticket_created',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `Membuat tiket kendala ${newId}: ${newTicket.title}`,
+      entityType: 'HelpDeskTicket',
+      entityId: newId,
+      afterData: newTicket,
+      occurredAt: nowStr,
+      outcome: 'berhasil',
     });
     return newTicket;
   };
@@ -3318,6 +3368,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         t.id === id
           ? {
               ...t,
+              updatedAt: nowStr,
               thread: [
                 ...t.thread,
                 {
@@ -3335,10 +3386,240 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateTicketStatus = (id: string, status: HelpDeskTicket['status']) => {
     const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
     saveStore({
       ...cur,
-      tickets: cur.tickets.map((t) => (t.id === id ? { ...t, status } : t)),
+      tickets: cur.tickets.map((t) => (t.id === id ? { ...t, status, updatedAt: nowStr } : t)),
     });
+  };
+
+  const updateTicket = (id: string, updates: Partial<HelpDeskTicket>) => {
+    const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
+    saveStore({
+      ...cur,
+      tickets: cur.tickets.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: nowStr } : t)),
+    });
+  };
+
+  const assignTicket = (id: string, staffName: string) => {
+    const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
+    saveStore({
+      ...cur,
+      tickets: cur.tickets.map((t) =>
+        t.id === id ? { ...t, assignedStaff: staffName, updatedAt: nowStr } : t
+      ),
+    });
+    recordAuditEvent({
+      actorId: 'HD-001',
+      actorName: 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'ticket_assigned',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `Menugaskan tiket ${id} kepada ${staffName}`,
+      entityType: 'HelpDeskTicket',
+      entityId: id,
+      occurredAt: nowStr,
+      outcome: 'berhasil',
+    });
+  };
+
+  const resolveTicket = (id: string, resolutionNotes: string) => {
+    const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
+    saveStore({
+      ...cur,
+      tickets: cur.tickets.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'selesai',
+              resolutionNotes,
+              resolvedAt: nowStr,
+              updatedAt: nowStr,
+            }
+          : t
+      ),
+    });
+    recordAuditEvent({
+      actorId: 'HD-001',
+      actorName: 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'ticket_resolved',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `Menyelesaikan tiket kendala ${id}`,
+      entityType: 'HelpDeskTicket',
+      entityId: id,
+      reason: resolutionNotes,
+      occurredAt: nowStr,
+      outcome: 'berhasil',
+    });
+  };
+
+  const reopenTicket = (id: string, reason: string) => {
+    const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
+    saveStore({
+      ...cur,
+      tickets: cur.tickets.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              status: 'dibuka_kembali',
+              updatedAt: nowStr,
+              thread: [
+                ...t.thread,
+                {
+                  id: `msg-${Date.now()}`,
+                  sender: 'Master Helpdesk',
+                  time: nowStr,
+                  text: `Tiket dibuka kembali: ${reason}`,
+                },
+              ],
+            }
+          : t
+      ),
+    });
+    recordAuditEvent({
+      actorId: 'HD-001',
+      actorName: 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'ticket_reopened',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `Membuka kembali tiket ${id}`,
+      entityType: 'HelpDeskTicket',
+      entityId: id,
+      reason,
+      occurredAt: nowStr,
+      outcome: 'berhasil',
+    });
+  };
+
+  const createCorrectionRequest = (
+    req: Omit<CorrectionRequest, 'id' | 'requestedAt' | 'status'>
+  ): CorrectionRequest => {
+    const cur = getAdminStore();
+    const newId = `COR-${String(cur.correctionRequests.length + 1).padStart(3, '0')}`;
+    const nowStr = formatNowTimestamp();
+    const newReq: CorrectionRequest = {
+      ...req,
+      id: newId,
+      requestedAt: nowStr,
+      status: 'menunggu_persetujuan',
+    };
+    saveStore({
+      ...cur,
+      correctionRequests: [newReq, ...cur.correctionRequests],
+    });
+    recordAuditEvent({
+      actorId: 'HD-001',
+      actorName: 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'correction_requested',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `Mengajukan koreksi data ${newReq.entityType} ${newReq.entityId} (Tingkat Risiko: ${newReq.riskLevel})`,
+      entityType: newReq.entityType,
+      entityId: newReq.entityId,
+      reason: newReq.reason,
+      beforeData: { [newReq.fieldName]: newReq.currentValue },
+      afterData: { [newReq.fieldName]: newReq.proposedValue },
+      occurredAt: nowStr,
+      outcome: 'berhasil',
+    });
+    return newReq;
+  };
+
+  const reviewCorrectionRequest = (
+    id: string,
+    decision: 'disetujui' | 'ditolak',
+    reviewerName: string,
+    notes?: string
+  ) => {
+    const cur = getAdminStore();
+    const nowStr = formatNowTimestamp();
+    const target = cur.correctionRequests.find((c) => c.id === id);
+    if (!target) return;
+
+    // Apply the correction to store if approved
+    const updatedStore = { ...cur };
+    if (decision === 'disetujui') {
+      if (target.entityType === 'Part') {
+        updatedStore.parts = updatedStore.parts.map((p) =>
+          p.kode === target.entityId || p.id === target.entityId
+            ? { ...p, [target.fieldName]: target.proposedValue }
+            : p
+        );
+      } else if (target.entityType === 'Sale') {
+        updatedStore.sales = updatedStore.sales.map((s) =>
+          s.id === target.entityId || s.number === target.entityId
+            ? { ...s, [target.fieldName]: target.proposedValue }
+            : s
+        );
+      } else if (target.entityType === 'Booking') {
+        updatedStore.bookings = updatedStore.bookings.map((b) =>
+          b.id === target.entityId
+            ? { ...b, [target.fieldName]: target.proposedValue }
+            : b
+        );
+      }
+    }
+
+    updatedStore.correctionRequests = updatedStore.correctionRequests.map((c) =>
+      c.id === id
+        ? {
+            ...c,
+            status: decision,
+            reviewedBy: reviewerName,
+            reviewedAt: nowStr,
+            reviewNotes: notes,
+          }
+        : c
+    );
+
+    saveStore(updatedStore);
+
+    recordAuditEvent({
+      actorId: 'ADM-001',
+      actorName: reviewerName,
+      actorRole: 'admin',
+      event: decision === 'disetujui' ? 'correction_approved' : 'correction_rejected',
+      category: 'bisnis',
+      module: 'helpdesk',
+      action: `${decision === 'disetujui' ? 'Menyetujui' : 'Menolak'} koreksi data ${target.entityType} ${target.entityId}`,
+      entityType: target.entityType,
+      entityId: target.entityId,
+      reason: notes || target.reason,
+      occurredAt: nowStr,
+      outcome: 'berhasil',
+    });
+  };
+
+  const addKnowledgeBaseArticle = (
+    article: Omit<KnowledgeBaseArticle, 'id' | 'updatedAt'>
+  ): KnowledgeBaseArticle => {
+    const cur = getAdminStore();
+    const newId = `KB-${String(cur.knowledgeBase.length + 1).padStart(3, '0')}`;
+    const nowStr = formatNowTimestamp();
+    const newArticle: KnowledgeBaseArticle = {
+      ...article,
+      id: newId,
+      updatedAt: nowStr,
+    };
+    saveStore({
+      ...cur,
+      knowledgeBase: [newArticle, ...cur.knowledgeBase],
+    });
+    return newArticle;
+  };
+
+  const refreshDataStore = () => {
+    storeState = loadInitialStore();
+    listeners.forEach((l) => l());
   };
 
   const addManualEntry = (e: Omit<ManualEntry, 'id'>): ManualEntry => {
@@ -3399,6 +3680,14 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addTicket,
         replyTicket,
         updateTicketStatus,
+        updateTicket,
+        assignTicket,
+        resolveTicket,
+        reopenTicket,
+        createCorrectionRequest,
+        reviewCorrectionRequest,
+        addKnowledgeBaseArticle,
+        refreshDataStore,
         addManualEntry,
         correctManualEntry,
         getPartStock,
