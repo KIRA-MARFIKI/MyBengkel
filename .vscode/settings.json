@@ -1,0 +1,23 @@
+{
+  "git.ignoredRepositories": [
+    "D:\\PROJECT KIRA\\web\\MyBengkel",
+    "d:\\PROJECT KIRA\\web\\MyBengkel"
+  ],
+  "git.autoRepositoryDetection": "subFolders",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 800,
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/.vite/**": true,
+    "**/supabase/.temp/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.vite": true,
+    "**/supabase/.temp": true
+  }
+}
