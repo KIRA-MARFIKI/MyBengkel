@@ -699,9 +699,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { ok: false, error: 'PIN harus berupa angka antara 8 hingga 12 digit.' };
     }
 
+    let pendingEmail = '';
+    let pendingPassword = '';
+    let pendingRole: UserRole = null;
+    try {
+      const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+      if (pendingRaw) {
+        const parsed = JSON.parse(pendingRaw);
+        pendingEmail = String(parsed.newEmail || '').trim().toLowerCase();
+        pendingPassword = String(parsed.newPassword || '');
+        if (parsed.role) pendingRole = parsed.role as UserRole;
+      }
+      if (!pendingEmail) {
+        const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+        if (verifiedRaw) {
+          const parsedVerified = JSON.parse(verifiedRaw);
+          pendingEmail = String(parsedVerified.email || '').trim().toLowerCase();
+          if (!pendingRole && parsedVerified.role) {
+            pendingRole = parsedVerified.role as UserRole;
+          }
+        }
+      }
+    } catch {
+      // ignore storage read errors
+    }
+
+    const currentRole = role || pendingRole || null;
+    let resolvedEmail: string | null =
+      pendingEmail || (user?.email ? user.email.trim().toLowerCase() : '') || null;
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session && pendingEmail && pendingPassword) {
+        const { data: signInData } = await supabase.auth.signInWithPassword({
+          email: pendingEmail,
+          password: pendingPassword,
+        });
+        if (signInData?.user?.email) {
+          resolvedEmail = signInData.user.email.trim().toLowerCase();
+        }
+      } else if (session?.user?.email) {
+        resolvedEmail = session.user.email.trim().toLowerCase();
+      }
+    } catch {
+      // safe fallback: RPC can still run via anon role with p_email
+    }
+
     try {
       const { data, error } = await supabase.rpc('set_account_security_pin', {
         p_new_pin: cleanPin,
+        p_role: currentRole,
+        p_email: resolvedEmail || pendingEmail || user?.email || null,
       });
       if (error) {
         const errMsg = error.message || '';
@@ -724,11 +775,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { ok: false, error: dataErr };
         }
       }
+      if (data?.email) {
+        resolvedEmail = String(data.email).trim().toLowerCase();
+      }
     } catch {
       // safe fallback
     }
 
-    const targetEmail = user?.email || '';
+    const targetEmail = resolvedEmail || user?.email || '';
     const next: SecuritySetupProgress = {
       mustCompleteSetup: false,
       passwordCompleted: true,
@@ -740,6 +794,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSecuritySetup(next);
     if (targetEmail) {
       saveStoredSecuritySetup(targetEmail, next);
+    }
+    if (user?.email && user.email.toLowerCase() !== targetEmail.toLowerCase()) {
+      saveStoredSecuritySetup(user.email, next);
+      if (!DEFAULT_BOOTSTRAP_EMAILS.includes(targetEmail.toLowerCase())) {
+        const nextUser: MockUserProfile = { ...user, email: targetEmail };
+        setUser(nextUser);
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+        }
+      }
     }
 
     try {

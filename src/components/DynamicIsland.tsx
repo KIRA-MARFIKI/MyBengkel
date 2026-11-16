@@ -80,6 +80,7 @@ export const DynamicIsland: React.FC = () => {
     const logo = logoRef.current;
 
     if (!container || !labels || !logo) return;
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return;
 
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = prefersReduced ? 0 : 0.5;
@@ -183,13 +184,32 @@ export const DynamicIsland: React.FC = () => {
       aria-label="Navigasi utama"
       className="fixed bottom-[20px] left-1/2 -translate-x-1/2 z-50 pointer-events-auto"
     >
+      {/* Mobile view (< 768px): Strictly compact "MB" badge only */}
+      <div className="md:hidden">
+        <button
+          type="button"
+          onClick={() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          aria-label="Kembali ke atas"
+          title="MyBengkel"
+          style={{
+            boxShadow: '0 8px 24px rgba(14,14,12,0.25)',
+          }}
+          className="w-[52px] h-[52px] rounded-[999px] bg-carbon/80 backdrop-blur-md border border-paper/10 flex items-center justify-center text-paper font-sans font-medium text-[16px] select-none active:scale-95 transition-transform cursor-pointer"
+        >
+          MB
+        </button>
+      </div>
+
+      {/* Desktop/Tablet (>= 768px): Morphing Dynamic Island */}
       <div
         ref={containerRef}
         onClick={handleIslandClick}
         style={{
           boxShadow: '0 8px 24px rgba(14,14,12,0.25)',
         }}
-        className={`bg-carbon/80 backdrop-blur-md rounded-[999px] border border-paper/10 flex items-center justify-center transition-colors cursor-pointer ${
+        className={`hidden md:flex bg-carbon/80 backdrop-blur-md rounded-[999px] border border-paper/10 items-center justify-center transition-colors cursor-pointer ${
           isCompact ? 'w-[56px] h-[56px]' : 'h-[52px] px-6'
         }`}
       >

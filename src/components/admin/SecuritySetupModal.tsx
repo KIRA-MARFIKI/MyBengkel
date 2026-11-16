@@ -225,11 +225,9 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         setNewPin('');
         setConfirmPin('');
 
-        // Auto-redirect to destination dashboard
-        setTimeout(() => {
-          const dest = role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin';
-          navigate(dest, { replace: true });
-        }, 900);
+        // Auto-redirect immediately to destination dashboard
+        const dest = role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin';
+        navigate(dest, { replace: true });
       }
     } finally {
       setPinLoading(false);
@@ -241,22 +239,38 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
       role="dialog"
       aria-modal="true"
       aria-label="Keamanan Akun"
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-md p-3 sm:p-4 overflow-y-auto"
     >
-      <div className="relative w-full max-w-[620px] bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] overflow-hidden my-6">
+      <div className="relative w-full max-w-[620px] bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] overflow-hidden my-4 sm:my-6">
         {/* Header */}
-        <div className="p-6 md:p-8 bg-[#1E2230] text-white">
-          <div className="flex items-center justify-between gap-4">
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-[#FFBD59]/20 text-[#FFBD59]">
-              Wajib: Keamanan Akun
-            </span>
-            <span className="text-xs text-[#9DA4B4] font-medium">
-              Peran: <strong className="text-white capitalize">{role?.replace('_', ' ')}</strong>
-            </span>
+        <div className="p-4 sm:p-6 md:p-8 bg-[#1E2230] text-white">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold uppercase tracking-wider bg-[#FFBD59]/20 text-[#FFBD59] whitespace-nowrap">
+                Wajib: Keamanan Akun
+              </span>
+              <span className="text-[11px] sm:text-xs text-[#9DA4B4] font-medium whitespace-nowrap">
+                Peran: <strong className="text-white capitalize">{role?.replace('_', ' ')}</strong>
+              </span>
+            </div>
+
+            {/* Mobile Close (X) icon button (< 768px) with minimum 44x44px touch target */}
+            <button
+              type="button"
+              onClick={logout}
+              aria-label="Keluar dari Sesi"
+              title="Keluar dari Sesi"
+              className="md:hidden flex items-center justify-center w-11 h-11 -mr-2 -my-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="5" y1="5" x2="15" y2="15" />
+                <line x1="15" y1="5" x2="5" y2="15" />
+              </svg>
+            </button>
           </div>
 
           {/* Progress Bar & Counter */}
-          <div className="mt-5 pt-4 border-t border-white/10">
+          <div className="mt-4 sm:mt-5 pt-3 sm:pt-4 border-t border-white/10">
             <div className="flex items-center justify-between text-xs font-medium mb-1.5">
               <span>Status Verifikasi</span>
               <span className="tabular-nums font-semibold text-[#FFBD59]">
@@ -279,14 +293,14 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           <button
             type="button"
             onClick={() => setActiveTab('password')}
-            className={`flex-1 py-3 px-2 text-center text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-h-[44px] py-2.5 sm:py-3 px-1.5 sm:px-2 text-center text-[11px] sm:text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
               activeTab === 'password'
                 ? 'border-[#1E2230] text-[#1E2230] font-semibold bg-white'
                 : 'border-transparent text-[#646B7C] hover:text-[#1E2230]'
             }`}
           >
             <span
-              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold ${
+              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shrink-0 ${
                 securitySetup.passwordCompleted
                   ? 'bg-[#22C55E] text-white'
                   : 'bg-[#D9DDE6] text-[#646B7C]'
@@ -294,7 +308,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
             >
               {securitySetup.passwordCompleted ? '✓' : '1'}
             </span>
-            <span>Password</span>
+            <span className="whitespace-nowrap font-medium">Password</span>
             <span className="hidden sm:inline text-[11px] opacity-75">
               ({securitySetup.passwordCompleted ? 'Selesai' : 'Belum'})
             </span>
@@ -303,14 +317,14 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           <button
             type="button"
             onClick={() => setActiveTab('email')}
-            className={`flex-1 py-3 px-2 text-center text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-h-[44px] py-2.5 sm:py-3 px-1.5 sm:px-2 text-center text-[11px] sm:text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
               activeTab === 'email'
                 ? 'border-[#1E2230] text-[#1E2230] font-semibold bg-white'
                 : 'border-transparent text-[#646B7C] hover:text-[#1E2230]'
             }`}
           >
             <span
-              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold ${
+              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shrink-0 ${
                 securitySetup.emailCompleted
                   ? 'bg-[#22C55E] text-white'
                   : 'bg-[#D9DDE6] text-[#646B7C]'
@@ -318,7 +332,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
             >
               {securitySetup.emailCompleted ? '✓' : '2'}
             </span>
-            <span>Email Akun</span>
+            <span className="whitespace-nowrap font-medium">Email Akun</span>
             <span className="hidden sm:inline text-[11px] opacity-75">
               ({securitySetup.emailCompleted ? 'Selesai' : 'Menunggu'})
             </span>
@@ -337,7 +351,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 ? 'Selesaikan konfirmasi email terlebih dahulu sebelum membuat PIN baru'
                 : 'Buat PIN 12 digit'
             }
-            className={`flex-1 py-3 px-2 text-center text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-h-[44px] py-2.5 sm:py-3 px-1.5 sm:px-2 text-center text-[11px] sm:text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1 sm:gap-1.5 ${
               !securitySetup.emailCompleted
                 ? 'opacity-50 cursor-not-allowed border-transparent text-[#9DA4B4] bg-[#F7F8FA]'
                 : activeTab === 'pin'
@@ -346,7 +360,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
             }`}
           >
             <span
-              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold ${
+              className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shrink-0 ${
                 securitySetup.pinCompleted
                   ? 'bg-[#22C55E] text-white'
                   : 'bg-[#D9DDE6] text-[#646B7C]'
@@ -354,7 +368,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
             >
               {securitySetup.pinCompleted ? '✓' : '3'}
             </span>
-            <span>PIN Baru</span>
+            <span className="whitespace-nowrap font-medium">PIN Baru</span>
             <span className="hidden sm:inline text-[11px] opacity-75">
               ({securitySetup.pinCompleted ? 'Selesai' : !securitySetup.emailCompleted ? 'Terkunci' : 'Belum'})
             </span>
@@ -362,7 +376,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         </div>
 
         {/* Content Section */}
-        <div className="p-6 md:p-8">
+        <div className="p-4 sm:p-6 md:p-8">
           {/* TAB 1: CHANGE PASSWORD */}
           {activeTab === 'password' && (
             <form onSubmit={handleSubmitPassword} className="space-y-4">
@@ -484,8 +498,13 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-end">
-                <ActionButton type="submit" intent="start" disabled={passwordLoading}>
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-end">
+                <ActionButton
+                  type="submit"
+                  intent="start"
+                  disabled={passwordLoading}
+                  className="w-full sm:w-auto justify-center min-h-[44px]"
+                >
                   {passwordLoading ? 'Menyimpan...' : 'Simpan Kata Sandi'}
                 </ActionButton>
               </div>
@@ -611,18 +630,19 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-between gap-3">
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 {resendCooldown > 0 ? (
-                  <span className="text-xs text-[#646B7C]">
+                  <span className="text-xs text-[#646B7C] text-center sm:text-left">
                     Kirim ulang dalam <strong className="tabular-nums">{resendCooldown}s</strong>
                   </span>
                 ) : (
-                  <span />
+                  <span className="hidden sm:inline" />
                 )}
                 <ActionButton
                   type="submit"
                   intent="start"
                   disabled={emailLoading || resendCooldown > 0}
+                  className="w-full sm:w-auto justify-center min-h-[44px]"
                 >
                   {emailLoading
                     ? 'Mengirim...'
@@ -716,8 +736,13 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 </div>
               )}
 
-              <div className="pt-2 flex items-center justify-end">
-                <ActionButton type="submit" intent="start" disabled={pinLoading}>
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-end">
+                <ActionButton
+                  type="submit"
+                  intent="start"
+                  disabled={pinLoading}
+                  className="w-full sm:w-auto justify-center min-h-[44px]"
+                >
                   {pinLoading ? 'Menyimpan...' : 'Simpan PIN Baru'}
                 </ActionButton>
               </div>
@@ -726,12 +751,12 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 px-6 md:px-8 bg-[#F6F7FA] border-t border-[#EEF0F4] flex items-center justify-between text-xs text-[#646B7C]">
-          <span>Semua persyaratan di atas wajib dilengkapi.</span>
+        <div className="p-4 px-4 sm:px-6 md:px-8 bg-[#F6F7FA] border-t border-[#EEF0F4] flex flex-col md:flex-row items-center justify-center md:justify-between gap-2 text-xs text-[#646B7C]">
+          <span className="text-center md:text-left">Semua persyaratan di atas wajib dilengkapi.</span>
           <button
             type="button"
             onClick={logout}
-            className="text-xs font-semibold text-[#D62E5A] hover:underline"
+            className="hidden md:inline-block text-xs font-semibold text-[#D62E5A] hover:underline shrink-0"
           >
             Keluar dari Sesi
           </button>

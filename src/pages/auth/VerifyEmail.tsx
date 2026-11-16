@@ -106,12 +106,6 @@ export const VerifyEmail: React.FC = () => {
       );
       const lastVerified = readJson<{ email?: string; role?: string }>(LAST_VERIFIED_ONBOARDING_KEY);
 
-      const role: UserRole =
-        normalizeRole(params.get('role')) ||
-        normalizeRole(pending?.role) ||
-        normalizeRole(lastVerified?.role) ||
-        'admin';
-
       // 1. Exchange the PKCE code once (the client may already have done it on init)
       if (code && !attemptedCodes.has(code)) {
         attemptedCodes.add(code);
@@ -129,6 +123,17 @@ export const VerifyEmail: React.FC = () => {
       const sessionUser = sessData.session?.user ?? null;
       const sessionEmail = sessionUser?.email?.toLowerCase() || '';
       const sessionConfirmed = Boolean(sessionUser?.email_confirmed_at);
+
+      const metaRole =
+        normalizeRole((sessionUser?.user_metadata as any)?.onboarding_role) ||
+        normalizeRole((sessionUser as any)?.raw_user_meta_data?.onboarding_role);
+
+      const role: UserRole =
+        normalizeRole(params.get('role')) ||
+        metaRole ||
+        normalizeRole(pending?.role) ||
+        normalizeRole(lastVerified?.role) ||
+        'admin';
 
       // 3. Ask the server for the real PIN state when we have a session
       let serverPinCompleted: boolean | null = null;
