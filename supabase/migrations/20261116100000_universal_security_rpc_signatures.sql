@@ -14,6 +14,17 @@
 
 create extension if not exists pgcrypto with schema extensions;
 
+alter table public.profiles
+  add column if not exists email text,
+  add column if not exists full_name text,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table public.user_roles
+  add column if not exists assigned_at timestamptz not null default now(),
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 -- ------------------------------------------------------------------------------
 -- 1. DROP ALL OVERLOADS OF set_account_security_pin
 -- ------------------------------------------------------------------------------
@@ -163,8 +174,8 @@ begin
           assigned_at = now()
       where user_id = v_user_id;
     else
-      insert into public.user_roles (user_id, role, assigned_at, created_at)
-      values (v_user_id, v_role, now(), now());
+      insert into public.user_roles (user_id, role, assigned_at)
+      values (v_user_id, v_role, now());
     end if;
   end if;
 

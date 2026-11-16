@@ -45,7 +45,12 @@ alter table public.profiles add column if not exists created_at timestamptz not 
 alter table public.profiles add column if not exists updated_at timestamptz not null default now();
 alter table public.profiles enable row level security;
 
--- Ensure user_roles allows all defined application roles
+-- Ensure user_roles has expected timestamp columns and allows all defined application roles
+alter table public.user_roles
+  add column if not exists assigned_at timestamptz not null default now(),
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 alter table public.user_roles drop constraint if exists user_roles_role_check;
 alter table public.user_roles add constraint user_roles_role_check
   check (role in ('admin', 'admin_gudang', 'master_gudang', 'master_admin', 'master_helpdesk', 'mekanik', 'customer'))
@@ -187,8 +192,8 @@ begin
     if exists (select 1 from public.user_roles where user_id = p_uid) then
       update public.user_roles set role = v_role, assigned_at = now() where user_id = p_uid;
     else
-      insert into public.user_roles (user_id, role, assigned_at, created_at)
-      values (p_uid, v_role, now(), now());
+      insert into public.user_roles (user_id, role, assigned_at)
+      values (p_uid, v_role, now());
     end if;
   end if;
 
@@ -297,8 +302,8 @@ begin
           assigned_at = now()
       where user_id = v_user_id;
     else
-      insert into public.user_roles (user_id, role, assigned_at, created_at)
-      values (v_user_id, v_role, now(), now());
+      insert into public.user_roles (user_id, role, assigned_at)
+      values (v_user_id, v_role, now());
     end if;
   end if;
 
