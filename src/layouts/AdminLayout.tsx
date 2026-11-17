@@ -124,10 +124,13 @@ const AdminShell: React.FC = () => {
 
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const avatarWrapRef = useRef<HTMLDivElement>(null);
   const topNavContainerRef = useRef<HTMLDivElement>(null);
+  const mobileNavRef = useRef<HTMLElement>(null);
 
   const activeTop = resolveTopNav(location.pathname);
+  const activeTopItem = visibleTopItems.find((item) => item.id === activeTop) || visibleTopItems[0];
   const isV1 = location.pathname.startsWith('/admin/v1');
   const isV2 = activeTop === 'gudang';
   const isLaporan = location.pathname.startsWith('/admin/laporan');
@@ -135,7 +138,31 @@ const AdminShell: React.FC = () => {
 
   useEffect(() => {
     resetBodyScrollIfIdle();
+    setMobileNavOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMobileNavOpen(false);
+      }
+    };
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      if (mobileNavRef.current && !mobileNavRef.current.contains(e.target as Node)) {
+        setMobileNavOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     const onGlobalKey = (e: KeyboardEvent) => {
@@ -181,12 +208,27 @@ const AdminShell: React.FC = () => {
 
   return (
     <div className="admin-theme min-h-screen font-sans bg-[#EEF0F4] text-[#1E2230]">
-      <div className="max-w-[1360px] mx-auto px-3 pb-8 pt-3 sm:px-4 sm:pt-4 md:px-6">
+      <div className="max-w-[1360px] mx-auto px-3 pb-24 md:pb-8 pt-3 sm:px-4 sm:pt-4 md:px-6">
         <header
           data-admin-topbar
-          className="topbar relative rounded-[20px] md:rounded-[24px] min-h-[64px] md:min-h-[72px] bg-white shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3 sm:px-4 py-2"
+          className="topbar relative rounded-[20px] md:rounded-[24px] min-h-[64px] md:min-h-[72px] bg-white shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-nowrap md:flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2"
         >
-          <nav aria-label="Navigasi utama" className="flex-1 min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+          {/* Mobile (< 768px): Compact left brand & active section title */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1 md:hidden">
+            <span className="w-9 h-9 rounded-[10px] bg-[#1E2230] text-[#FFBD59] font-condensed font-bold text-sm flex items-center justify-center shrink-0">
+              MB
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-medium text-[#646B7C] leading-none truncate">
+                MyBengkel
+              </div>
+              <div className="text-[15px] font-semibold text-[#1E2230] leading-tight truncate mt-0.5">
+                {activeTopItem?.label || 'Dashboard'}
+              </div>
+            </div>
+          </div>
+
+          <nav aria-label="Navigasi utama" className="hidden md:block flex-1 min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
             <div ref={topNavContainerRef} className="relative inline-flex items-stretch min-h-[56px]">
               <NavIsland containerRef={topNavContainerRef} activeKey={activeTop} />
               {visibleTopItems.map((item, idx) => {
@@ -334,6 +376,105 @@ const AdminShell: React.FC = () => {
         </main>
       </div>
 
+      {/* Mobile (< 768px): Interactive Dynamic Island Navigation */}
+      {mobileNavOpen && (
+        <div
+          aria-hidden="true"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-40 md:hidden"
+        />
+      )}
+
+      <nav
+        ref={mobileNavRef}
+        aria-label="Navigasi mobile Dynamic Island"
+        className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 md:hidden flex flex-col items-center pointer-events-auto"
+      >
+        {mobileNavOpen && (
+          <div className="w-[92vw] max-w-[360px] mb-2.5 rounded-[24px] bg-[#1E2230]/95 backdrop-blur-xl text-white p-3.5 shadow-[0_20px_50px_rgba(14,14,12,0.45)] border border-white/15">
+            <div className="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-white/10 px-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-7 h-7 rounded-full bg-[#FFBD59] text-[#1E2230] font-condensed font-bold text-xs flex items-center justify-center shrink-0">
+                  MB
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-white/80 truncate">
+                  Menu Navigasi
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Tutup menu navigasi"
+                className="w-11 h-11 rounded-full flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={visibleTopItems.length === 1 ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2'}>
+              {visibleTopItems.map((item) => {
+                const active = activeTop === item.id;
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.to}
+                    onClick={() => setMobileNavOpen(false)}
+                    aria-current={active ? 'page' : undefined}
+                    className={`min-h-[48px] px-3 py-2.5 rounded-[14px] flex items-center gap-2.5 no-underline transition-all text-[13px] ${
+                      active
+                        ? 'bg-[#FFBD59] text-[#1E2230] font-semibold shadow-sm'
+                        : 'bg-white/[0.07] text-white/85 hover:bg-white/[0.14] hover:text-white font-medium'
+                    }`}
+                  >
+                    <span className="shrink-0">
+                      <NavIcon id={item.id} />
+                    </span>
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen((o) => !o)}
+          aria-expanded={mobileNavOpen}
+          aria-label="Buka menu navigasi Dynamic Island"
+          className="min-h-[48px] px-4 py-2 rounded-full bg-[#1E2230]/95 backdrop-blur-md text-white shadow-[0_12px_32px_rgba(30,34,48,0.32)] border border-white/15 flex items-center gap-2.5 active:scale-95 transition-all cursor-pointer"
+        >
+          <span className="w-7 h-7 rounded-full bg-[#FFBD59] text-[#1E2230] font-condensed font-bold text-xs flex items-center justify-center shrink-0">
+            MB
+          </span>
+          <span aria-hidden="true" className="text-white/50 font-bold">
+            &bull;
+          </span>
+          <span className="flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap">
+            <NavIcon id={activeTop} />
+            <span>{activeTopItem?.label || 'Dashboard'}</span>
+          </span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className={`shrink-0 text-white/75 transition-transform duration-200 ${
+              mobileNavOpen ? 'rotate-180' : ''
+            }`}
+          >
+            <path d="M4 10L8 6L12 10" />
+          </svg>
+        </button>
+      </nav>
+
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
       {showSecurityModal && <SecuritySetupModal isOpen={true} />}
     </div>
@@ -358,8 +499,33 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
   const activePath = tabs[activeIdx]?.path ?? tabs[0].path;
 
   return (
-    <nav aria-label="Submenu modul" className="mt-4 overflow-x-auto">
-      <div ref={containerRef} className="relative inline-flex items-center gap-2 p-0.5">
+    <nav aria-label="Submenu modul" className="mt-4 md:overflow-x-auto">
+      {/* Mobile (< 768px): 2-column symmetrical grid so no sub-tab clips at the edge */}
+      <div className="grid grid-cols-2 gap-2 md:hidden">
+        {tabs.map((t, i) => {
+          const active = i === activeIdx;
+          const isLastOdd = tabs.length % 2 === 1 && i === tabs.length - 1;
+          return (
+            <Link
+              key={t.path}
+              to={t.path}
+              aria-current={active ? 'page' : undefined}
+              className={`shrink-0 min-h-[42px] px-4 py-2 rounded-[12px] inline-flex items-center justify-center text-center font-sans text-[13px] no-underline transition-colors ${
+                isLastOdd ? 'col-span-2' : ''
+              } ${
+                active
+                  ? 'bg-[#1E2230] text-white font-semibold shadow-xs'
+                  : 'bg-white text-[#646B7C] border border-[#D9DDE6] font-medium hover:text-[#1E2230]'
+              }`}
+            >
+              <span className="truncate">{t.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+
+      {/* Desktop/Tablet (>= 768px): Animated TabIsland strip */}
+      <div ref={containerRef} className="relative hidden md:inline-flex items-center gap-2 p-0.5">
         <TabIsland containerRef={containerRef} activeKey={activePath} />
         {tabs.map((t, i) => {
           const active = i === activeIdx;
