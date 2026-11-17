@@ -158,7 +158,7 @@ export const BookingSection: React.FC = () => {
               </span>
               <h2
                 data-aos="fade-up"
-                className="font-condensed font-semibold text-[38px] md:text-[46px] text-paper tracking-tight leading-tight mb-3"
+                className="font-condensed font-semibold text-[30px] sm:text-[38px] md:text-[46px] text-paper tracking-tight leading-tight mb-3"
               >
                 Booking servis
               </h2>
@@ -175,7 +175,7 @@ export const BookingSection: React.FC = () => {
             <div
               data-aos="fade-up"
               data-aos-delay="120"
-              className="bg-paper/[0.02] border border-steel/40 rounded-[12px] p-6 md:p-8"
+              className="bg-paper/[0.02] border border-steel/40 rounded-[12px] p-4 sm:p-6 md:p-8"
             >
               <BookingForm mode="public" />
             </div>
@@ -203,7 +203,7 @@ export const BookingSection: React.FC = () => {
                   : undefined
               }
               title={isCustomer ? 'Klik untuk melihat atau mengubah identitas konsumen' : undefined}
-              className={`rounded-[12px] bg-paper/[0.04] border border-steel/50 p-6 text-paper ${
+              className={`rounded-[12px] bg-paper/[0.04] border border-steel/50 p-4 sm:p-6 text-paper ${
                 isCustomer
                   ? 'hover:border-signal/70 hover:bg-paper/[0.07] cursor-pointer transition-all duration-200 group relative'
                   : ''
@@ -212,7 +212,7 @@ export const BookingSection: React.FC = () => {
               {isCustomer ? (
                 <div>
                   <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-paper/10">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       {/* Avatar Icon */}
                       <div className="w-11 h-11 rounded-full bg-signal text-carbon font-bold flex items-center justify-center text-lg uppercase select-none shadow-sm group-hover:scale-105 transition-transform">
                         {user?.name ? user.name.charAt(0) : 'P'}
@@ -221,8 +221,8 @@ export const BookingSection: React.FC = () => {
                         <div className="text-sm font-semibold text-paper truncate group-hover:text-signal transition-colors">
                           {user?.name || 'Pelanggan Terdaftar'}
                         </div>
-                        <div className="text-xs text-paper/60 truncate font-mono flex items-center gap-2">
-                          <span>{user?.email}</span>
+                        <div className="text-xs text-paper/60 truncate font-mono flex items-center gap-2 min-w-0">
+                          <span className="truncate">{user?.email}</span>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -245,7 +245,7 @@ export const BookingSection: React.FC = () => {
                       }}
                       title="Ubah identitas konsumen"
                       aria-label="Ubah identitas konsumen"
-                      className="w-8 h-8 rounded-full border border-[#3DA5F5]/40 bg-[#3DA5F5]/10 hover:bg-[#3DA5F5]/25 hover:border-[#3DA5F5] text-[#3DA5F5] flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+                      className="w-11 h-11 md:w-8 md:h-8 rounded-full border border-[#3DA5F5]/40 bg-[#3DA5F5]/10 hover:bg-[#3DA5F5]/25 hover:border-[#3DA5F5] text-[#3DA5F5] flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
                     >
                       <svg
                         className="w-4 h-4"
@@ -265,7 +265,7 @@ export const BookingSection: React.FC = () => {
                   </div>
 
                   {/* Profile Quick Details */}
-                  <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div>
                       <span className="text-paper/50 block mb-0.5">Nomor Polisi:</span>
                       <span className="font-mono font-medium text-paper bg-paper/[0.06] px-2 py-0.5 rounded inline-block">
@@ -311,13 +311,13 @@ export const BookingSection: React.FC = () => {
                   <div className="flex flex-col sm:flex-row gap-3 pt-2">
                     <Link
                       to="/login?next=/#booking"
-                      className="flex-1 py-2.5 px-4 text-center rounded-[4px] bg-signal text-carbon font-medium text-xs hover:bg-signal/90 transition-colors"
+                      className="flex-1 min-h-[44px] md:min-h-0 flex items-center justify-center py-2.5 px-4 text-center rounded-[4px] bg-signal text-carbon font-medium text-xs hover:bg-signal/90 transition-colors"
                     >
                       Masuk Akun
                     </Link>
                     <Link
                       to="/register"
-                      className="flex-1 py-2.5 px-4 text-center rounded-[4px] border border-steel/80 text-paper font-medium text-xs hover:border-paper transition-colors"
+                      className="flex-1 min-h-[44px] md:min-h-0 flex items-center justify-center py-2.5 px-4 text-center rounded-[4px] border border-steel/80 text-paper font-medium text-xs hover:border-paper transition-colors"
                     >
                       Daftar Akun Baru
                     </Link>
@@ -444,7 +444,7 @@ export const BookingSection: React.FC = () => {
                         </div>
 
                         {/* Bottom link indicator and Batal Servis button */}
-                        <div className="mt-4 pt-2.5 border-t border-paper/10 flex items-center justify-between text-xs">
+                        <div className="mt-4 pt-2.5 border-t border-paper/10 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <div className="flex items-center gap-1 text-paper/60 group-hover:text-paper transition-colors">
                             <span>Lihat rincian</span>
                             <span
@@ -461,7 +461,7 @@ export const BookingSection: React.FC = () => {
                                 e.stopPropagation();
                                 setBookingToCancel(b);
                               }}
-                              className="px-2.5 py-1 rounded-[4px] border border-[rgba(242,70,111,0.5)] bg-[rgba(242,70,111,0.08)] hover:bg-[rgba(242,70,111,0.2)] text-xs font-semibold text-[#F2466F] transition-colors"
+                              className="min-h-[44px] md:min-h-0 px-3 py-1.5 md:px-2.5 md:py-1 rounded-[4px] border border-[rgba(242,70,111,0.5)] bg-[rgba(242,70,111,0.08)] hover:bg-[rgba(242,70,111,0.2)] text-xs font-semibold text-[#F2466F] transition-colors"
                             >
                               Batal Servis
                             </button>

@@ -115,7 +115,7 @@ export const ResetPassword: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full bg-[#1E2230] text-[#EEF0F4] flex items-center justify-center p-4">
-      <div className="w-full max-w-[460px] bg-white rounded-[16px] shadow-2xl border border-[#EEF0F4] text-[#1E2230] p-8 md:p-10">
+      <div className="w-full max-w-[95vw] sm:max-w-[460px] bg-white rounded-[16px] shadow-2xl border border-[#EEF0F4] text-[#1E2230] p-6 sm:p-8 md:p-10">
         {/* Header */}
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#FFBD59]/20 text-[#B45309] font-bold text-xl mb-3">
@@ -168,7 +168,7 @@ export const ResetPassword: React.FC = () => {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Minimal 8 karakter campuran"
-                className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
               />
 
               {/* Password Strength Meter */}
@@ -200,7 +200,7 @@ export const ResetPassword: React.FC = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Ketik ulang kata sandi baru"
-                className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
               />
             </div>
 
@@ -219,7 +219,7 @@ export const ResetPassword: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-[#1E2230] text-white font-medium text-sm rounded-[6px] hover:bg-[#2C3246] transition-colors disabled:opacity-50 cursor-pointer"
+              className="w-full min-h-[44px] py-3 bg-[#1E2230] text-white font-medium text-sm rounded-[6px] hover:bg-[#2C3246] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Memproses...' : 'Simpan Kata Sandi Baru'}
             </button>

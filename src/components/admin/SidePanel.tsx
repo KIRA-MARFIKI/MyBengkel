@@ -306,7 +306,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
         style={{ opacity: 0 }}
         onClick={onClose}
       />
-      <div className={`relative w-full ${widthClass} h-full max-h-screen flex flex-col`}>
+      <div className={`relative w-full ${widthClass} h-full max-h-dvh flex flex-col`}>
         <div
           ref={ghostRef}
           aria-hidden="true"
@@ -320,9 +320,9 @@ export const SidePanel: React.FC<SidePanelProps> = ({
             opacity: 0,
             boxShadow: '0 24px 48px rgba(0, 0, 0, 0.12)',
           }}
-          className="relative w-full h-full max-h-screen bg-white sm:rounded-l-[24px] flex flex-col overflow-hidden"
+          className="relative w-full h-full max-h-dvh bg-white sm:rounded-l-[24px] flex flex-col overflow-hidden"
         >
-          <div className="p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-4 shrink-0">
+          <div className="p-4 sm:p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-3 sm:gap-4 shrink-0">
             <div>
               <h2 id="sidepanel-title" className="admin-macro-section">
                 {title}
@@ -336,12 +336,12 @@ export const SidePanel: React.FC<SidePanelProps> = ({
             <XIconButton ariaLabel="Tutup" title="Tutup" onClick={onClose} />
           </div>
 
-          <div ref={bodyRef} className="panel-body p-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div ref={bodyRef} className="panel-body p-4 sm:p-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
             {children}
           </div>
 
           {footer && (
-            <div className="p-4 border-t border-[#EEF0F4] flex items-center justify-end gap-3 shrink-0">
+            <div className="p-3 sm:p-4 border-t border-[#EEF0F4] flex flex-wrap items-center justify-end gap-2 sm:gap-3 shrink-0">
               {footer}
             </div>
           )}

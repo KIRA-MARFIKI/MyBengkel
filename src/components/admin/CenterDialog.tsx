@@ -284,7 +284,7 @@ export const CenterDialog: React.FC<CenterDialogProps> = ({
       aria-labelledby={titleId}
       data-center-dialog="true"
       data-modal-open={isOpen ? 'true' : 'false'}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -296,7 +296,7 @@ export const CenterDialog: React.FC<CenterDialogProps> = ({
         style={{ opacity: 0 }}
         onClick={onClose}
       />
-      <div className={`relative w-full ${maxWidthClass} max-h-[90vh] flex flex-col my-auto`}>
+      <div className={`relative w-full ${maxWidthClass} max-h-[90dvh] flex flex-col my-auto`}>
         <div
           ref={ghostRef}
           aria-hidden="true"
@@ -310,9 +310,9 @@ export const CenterDialog: React.FC<CenterDialogProps> = ({
             opacity: 0,
             boxShadow: '0 24px 48px rgba(0, 0, 0, 0.14)',
           }}
-          className="relative w-full max-h-[90vh] bg-white rounded-[20px] flex flex-col overflow-hidden"
+          className="relative w-full max-h-[90dvh] bg-white rounded-[20px] flex flex-col overflow-hidden"
         >
-          <div className="p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-4 shrink-0">
+          <div className="p-4 sm:p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-3 sm:gap-4 shrink-0">
             <div>
               <h2 id={titleId} className="admin-macro-section text-[#1E2230]">
                 {title}
@@ -331,12 +331,12 @@ export const CenterDialog: React.FC<CenterDialogProps> = ({
               ))}
           </div>
 
-          <div ref={bodyRef} className="p-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div ref={bodyRef} className="p-4 sm:p-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
             {children}
           </div>
 
           {footer && (
-            <div className="p-4 border-t border-[#EEF0F4] flex items-center justify-end gap-3 shrink-0">
+            <div className="p-3 sm:p-4 border-t border-[#EEF0F4] flex flex-wrap items-center justify-end gap-2 sm:gap-3 shrink-0">
               {footer}
             </div>
           )}

@@ -787,7 +787,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
 
         {/* Export All Controls (Available on /admin/laporan) */}
         {mode === 'semua' && (
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <ActionButton
               intent="start"
               disabled={Boolean(exportingKey)}
@@ -849,7 +849,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               </span>
               <h2 className="text-[18px] font-bold text-[#1E2230] mt-1">Laporan Operasional Servis</h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
@@ -993,7 +993,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                 value={serviceWoSearch}
                 onChange={(e) => setServiceWoSearch(e.target.value)}
                 placeholder="Cari WO, plat, konsumen..."
-                className="admin-input !h-8 text-[12px] w-48 sm:w-56"
+                className="admin-input !h-8 text-[12px] w-full sm:w-56"
               />
             }
           >
@@ -1065,7 +1065,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               </span>
               <h2 className="text-[18px] font-bold text-[#1E2230] mt-1">Laporan Penjualan Sparepart</h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
@@ -1236,7 +1236,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                 value={salesPartSearch}
                 onChange={(e) => setSalesPartSearch(e.target.value)}
                 placeholder="Cari part..."
-                className="admin-input !h-8 text-[12px] w-48 sm:w-56"
+                className="admin-input !h-8 text-[12px] w-full sm:w-56"
               />
             }
           >
@@ -1263,7 +1263,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               </span>
               <h2 className="text-[18px] font-bold text-[#1E2230] mt-1">Laporan Pengelolaan Gudang</h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
@@ -1410,7 +1410,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                 value={warehousePartSearch}
                 onChange={(e) => setWarehousePartSearch(e.target.value)}
                 placeholder="Cari kode atau nama part..."
-                className="admin-input !h-8 text-[12px] w-48 sm:w-56"
+                className="admin-input !h-8 text-[12px] w-full sm:w-56"
               />
             }
           >
@@ -1464,7 +1464,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                   Audit fisik inventaris, rekonsiliasi selisih buku stok, dan riwayat persetujuan
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <ActionButton
                   intent="start"
                   onClick={() => {
@@ -1545,7 +1545,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                   value={stockOpnameSearch}
                   onChange={(e) => setStockOpnameSearch(e.target.value)}
                   placeholder="Cari kode opname atau petugas..."
-                  className="admin-input !h-8 text-[12px] w-48 sm:w-56"
+                  className="admin-input !h-8 text-[12px] w-full sm:w-56"
                 />
               }
             >
@@ -1585,7 +1585,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
             </div>
 
             {isMasterUnlocked && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-[12px] font-semibold">
                   <span className="w-2 h-2 rounded-full bg-[#10B981]"></span>
                   Terverifikasi: Master Admin ({DUMMY_MASTER.id})
@@ -1643,11 +1643,11 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               <div className="p-4 rounded-[16px] bg-white border border-[#E2E8F0] shadow-sm space-y-3">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                   {/* Period Toggle */}
-                  <div className="flex items-center gap-1.5 p-1 bg-[#F1F5F9] rounded-[10px]">
+                  <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[#F1F5F9] rounded-[10px]">
                     <button
                       type="button"
                       onClick={() => setAuditPeriodFilter('semua')}
-                      className={`px-3 py-1 text-[12px] font-semibold rounded-[8px] transition-all ${
+                      className={`px-3 py-2 md:py-1 min-h-[44px] md:min-h-0 text-[12px] font-semibold rounded-[8px] transition-all ${
                         auditPeriodFilter === 'semua'
                           ? 'bg-white text-[#1E2230] shadow-xs'
                           : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -1658,7 +1658,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                     <button
                       type="button"
                       onClick={() => setAuditPeriodFilter('periode')}
-                      className={`px-3 py-1 text-[12px] font-semibold rounded-[8px] transition-all ${
+                      className={`px-3 py-2 md:py-1 min-h-[44px] md:min-h-0 text-[12px] font-semibold rounded-[8px] transition-all ${
                         auditPeriodFilter === 'periode'
                           ? 'bg-white text-[#1E2230] shadow-xs'
                           : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -1812,7 +1812,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
         {selectedAuditLog && (
           <div className="space-y-4 text-[13px]">
             {/* Overview Grid */}
-            <div className="grid grid-cols-2 gap-3 p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-[12px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-[12px]">
               <div>
                 <span className="text-[11px] text-[#646B7C] block">Waktu Kejadian</span>
                 <span className="font-mono font-semibold text-[#1E2230]">

@@ -18,9 +18,9 @@ export const DataCard: React.FC<DataCardProps> = ({
 }) => (
   <section className={`data-card admin-card flex flex-col ${className}`}>
     {(title || actions) && (
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-4">
         {title && <h2 className="admin-macro-section">{title}</h2>}
-        {actions && <div className="flex flex-wrap items-center gap-2.5">{actions}</div>}
+        {actions && <div className="w-full sm:w-auto flex flex-wrap items-center gap-2 sm:gap-2.5">{actions}</div>}
       </div>
     )}
     <div className="flex-1">{children}</div>

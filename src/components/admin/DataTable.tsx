@@ -67,7 +67,7 @@ export function DataTable<T>({
       .join(',')}`;
 
   return (
-    <ListSwap swapKey={computedSwapKey} className={`overflow-x-auto ${className}`}>
+    <ListSwap swapKey={computedSwapKey} className={`overflow-x-auto [-webkit-overflow-scrolling:touch] ${className}`}>
       <table className="w-full text-left border-collapse text-[14px] text-[#1E2230] min-w-[520px] bg-white">
         <thead>
           <tr className="bg-[#F6F7FA]">
@@ -86,7 +86,7 @@ export function DataTable<T>({
                 <th
                   key={col.key}
                   scope="col"
-                  className={`h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] ${alignCls} ${radiusCls} ${
+                  className={`h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap ${alignCls} ${radiusCls} ${
                     col.className || ''
                   }`}
                 >

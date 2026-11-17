@@ -908,8 +908,8 @@ const V1ServiceForms: React.FC = () => {
                 </form>
               )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[14px] bg-white">
+              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[480px]">
                   <thead>
                     <tr className="bg-[#F6F7FA] text-[#646B7C]">
                       <th className="py-2.5 px-3.5 admin-micro rounded-l-[12px]">Nama jasa</th>
@@ -1076,8 +1076,8 @@ const V1ServiceForms: React.FC = () => {
                 </form>
               )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[14px] bg-white">
+              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[480px]">
                   <thead>
                     <tr className="bg-[#F6F7FA] text-[#646B7C]">
                       <th className="py-2.5 px-3.5 admin-micro rounded-l-[12px]">Nama part</th>

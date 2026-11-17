@@ -545,13 +545,13 @@ export const BookingForm: React.FC<BookingFormProps> = ({
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#EEF0F4]">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3 pt-3 border-t border-[#EEF0F4]">
           {onCancel && (
-            <ActionButton type="button" intent="cancel" onClick={onCancel}>
+            <ActionButton type="button" intent="cancel" onClick={onCancel} className="w-full sm:w-auto justify-center">
               Batal
             </ActionButton>
           )}
-          <ActionButton type="submit" intent="start">
+          <ActionButton type="submit" intent="start" className="w-full sm:w-auto justify-center">
             Simpan booking
           </ActionButton>
         </div>

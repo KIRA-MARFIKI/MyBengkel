@@ -500,7 +500,7 @@ export const HelpDeskCenter: React.FC = () => {
       {/* Header Banner */}
       <div className="rounded-[20px] bg-white border border-[#EEF0F4] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.03)] flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
             <span className="font-mono text-xs uppercase tracking-widest px-2.5 py-0.5 rounded-[6px] bg-[#3DA5F5]/10 text-[#1D6FC4] font-semibold">
               Support Center
             </span>
@@ -508,7 +508,7 @@ export const HelpDeskCenter: React.FC = () => {
               Peran Aktif: <strong className="text-[#1E2230]">{role === 'master_helpdesk' ? 'Master Helpdesk' : 'Master Admin'}</strong>
             </span>
           </div>
-          <h1 className="text-[28px] font-condensed font-bold text-[#1E2230] leading-tight">
+          <h1 className="text-[24px] sm:text-[28px] font-condensed font-bold text-[#1E2230] leading-tight">
             Helpdesk Center
           </h1>
           <p className="text-sm text-[#646B7C] mt-1">
@@ -516,13 +516,14 @@ export const HelpDeskCenter: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <ActionButton
             intent="start"
             onClick={(e) => {
               setLastTriggerElement(e.currentTarget);
               setCreateTicketOpen(true);
             }}
+            className="w-full sm:w-auto justify-center"
           >
             Buat Tiket Bantuan
           </ActionButton>
@@ -530,11 +531,11 @@ export const HelpDeskCenter: React.FC = () => {
       </div>
 
       {/* Main Tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-[#D9DDE6] pb-1 overflow-x-auto">
+      <div className="flex items-center gap-1.5 sm:gap-2 border-b border-[#D9DDE6] pb-1 overflow-x-auto [-webkit-overflow-scrolling:touch]">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'overview'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -545,7 +546,7 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('tickets')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'tickets'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -556,7 +557,7 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('diagnostics')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'diagnostics'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -567,7 +568,7 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('corrections')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'corrections'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -578,7 +579,7 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('knowledge')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'knowledge'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -589,7 +590,7 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('audit')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-[10px] transition-colors ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'audit'
               ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
               : 'text-[#646B7C] hover:text-[#1E2230]'
@@ -800,7 +801,7 @@ export const HelpDeskCenter: React.FC = () => {
                 />
 
                 {/* Priority & Category Dropdowns */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <select
                     value={priorityFilter}
                     onChange={(e) => setPriorityFilter(e.target.value)}
@@ -918,7 +919,7 @@ export const HelpDeskCenter: React.FC = () => {
 
                   {/* Related Record Badge */}
                   {selectedTicket.relatedRecordId && (
-                    <div className="flex items-center justify-between p-3 rounded-[10px] bg-[#3DA5F5]/10 border border-[#3DA5F5]/20 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-[10px] bg-[#3DA5F5]/10 border border-[#3DA5F5]/20 text-xs">
                       <div>
                         <span className="text-[#1D6FC4] font-medium">Record Terkait: </span>
                         <strong className="font-mono text-[#1E2230]">{selectedTicket.relatedRecordId}</strong>
@@ -1100,7 +1101,11 @@ export const HelpDeskCenter: React.FC = () => {
                   onChange={(e) => setDiagnosticQuery(e.target.value)}
                   className="admin-input flex-1 text-sm font-mono uppercase"
                 />
-                <ActionButton intent="start" onClick={() => executeDiagnostics()}>
+                <ActionButton
+                  intent="start"
+                  onClick={() => executeDiagnostics()}
+                  className="w-full sm:w-auto justify-center"
+                >
                   Jalankan Diagnosis
                 </ActionButton>
               </div>
@@ -1269,7 +1274,7 @@ export const HelpDeskCenter: React.FC = () => {
                   </div>
                 )}
                 <form onSubmit={handleCorrectionSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField id="cor-entity" label="Jenis Entitas">
                       <select
                         id="cor-entity"
@@ -1309,7 +1314,7 @@ export const HelpDeskCenter: React.FC = () => {
                     />
                   </FormField>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField id="cor-current" label="Nilai Saat Ini (Current)">
                       <input
                         id="cor-current"
@@ -1411,7 +1416,7 @@ export const HelpDeskCenter: React.FC = () => {
                           </div>
 
                           {/* Before vs After comparison */}
-                          <div className="grid grid-cols-2 gap-2 p-2.5 rounded-[10px] bg-[#F6F7FA] border border-[#EEF0F4] font-mono text-[11px]">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 rounded-[10px] bg-[#F6F7FA] border border-[#EEF0F4] font-mono text-[11px]">
                             <div>
                               <span className="text-[#646B7C] text-[10px] block">Sebelum:</span>
                               <span className="text-[#D62E5A] line-through">{cor.currentValue}</span>
@@ -1432,7 +1437,7 @@ export const HelpDeskCenter: React.FC = () => {
                             </p>
                           )}
 
-                          <div className="flex items-center justify-between text-[11px] text-[#646B7C] pt-2 border-t border-[#EEF0F4]">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#646B7C] pt-2 border-t border-[#EEF0F4]">
                             <span>Diajukan oleh {cor.requestedBy} pada {cor.requestedAt}</span>
                             {isPending && (
                               <div>
@@ -1559,7 +1564,7 @@ export const HelpDeskCenter: React.FC = () => {
                         </ol>
                       </div>
 
-                      <div className="pt-3 border-t border-[#EEF0F4] flex items-center justify-between text-[11px] text-[#646B7C]">
+                      <div className="pt-3 border-t border-[#EEF0F4] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#646B7C]">
                         <span>Penulis: {article.author}</span>
                         <ActionButton
                           intent="wait"
@@ -1568,6 +1573,7 @@ export const HelpDeskCenter: React.FC = () => {
                             navigator.clipboard.writeText(`Rekomendasi Penanganan (${article.title}):\n${stepsText}`);
                             alert('Langkah solusi telah disalin ke clipboard.');
                           }}
+                          className="w-full sm:w-auto justify-center"
                         >
                           Salin Langkah Solusi
                         </ActionButton>
@@ -1590,17 +1596,17 @@ export const HelpDeskCenter: React.FC = () => {
               Setiap penanganan tiket, diagnosis entitas, pengajuan koreksi, dan intervensi tercatat secara permanen dan tidak dapat diubah oleh peran Helpdesk.
             </p>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+              <table className="w-full text-left text-xs min-w-[680px]">
                 <thead>
                   <tr className="border-b border-[#EEF0F4] text-[#646B7C]">
-                    <th className="py-2.5 px-3">Waktu</th>
-                    <th className="py-2.5 px-3">Aktor</th>
-                    <th className="py-2.5 px-3">Peran</th>
-                    <th className="py-2.5 px-3">Tindakan</th>
-                    <th className="py-2.5 px-3">Entitas</th>
-                    <th className="py-2.5 px-3">Alasan / Catatan</th>
-                    <th className="py-2.5 px-3">Hasil</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Waktu</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Aktor</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Peran</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Tindakan</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Entitas</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Alasan / Catatan</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Hasil</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF0F4]">
@@ -1668,7 +1674,7 @@ export const HelpDeskCenter: React.FC = () => {
             />
           </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField id="new-tkt-cat" label="Kategori Masalah">
               <select
                 id="new-tkt-cat"

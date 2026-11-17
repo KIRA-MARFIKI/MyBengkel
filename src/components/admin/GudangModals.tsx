@@ -483,37 +483,37 @@ export const RequestEyeDialog: React.FC<RequestEyeDialogProps> = ({
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
           <table className="w-full text-left border-collapse text-[14px] text-[#1E2230]">
             <thead>
               <tr className="bg-[#F6F7FA]">
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] rounded-l-[12px]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap rounded-l-[12px]"
                 >
                   Kode Part
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap"
                 >
                   Nama Part
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right"
                 >
                   Jumlah
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right"
                 >
                   Harga satuan
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right rounded-r-[12px]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right rounded-r-[12px]"
                 >
                   Subtotal
                 </th>
@@ -693,37 +693,37 @@ export const ProcessHoDialog: React.FC<ProcessHoDialogProps> = ({
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
           <table className="w-full text-left border-collapse text-[14px] text-[#1E2230]">
             <thead>
               <tr className="bg-[#F6F7FA]">
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] rounded-l-[12px]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap rounded-l-[12px]"
                 >
                   Kode Part
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap"
                 >
                   Nama Part
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right"
                 >
                   Jumlah
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right"
                 >
                   Harga satuan
                 </th>
                 <th
                   scope="col"
-                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] text-right rounded-r-[12px]"
+                  className="h-10 px-3.5 font-sans font-medium text-[12px] text-[#646B7C] whitespace-nowrap text-right rounded-r-[12px]"
                 >
                   Subtotal
                 </th>

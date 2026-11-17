@@ -277,7 +277,7 @@ export const Register: React.FC = () => {
   const errorList = Object.entries(errors).filter(([_, msg]) => !!msg);
 
   return (
-    <div className="min-h-screen w-full bg-paper text-carbon py-12 px-6 pb-28">
+    <div className="min-h-screen w-full bg-paper text-carbon py-8 px-4 sm:py-12 sm:px-6 pb-28">
       <div className="w-full max-w-[640px] mx-auto">
         {/* Top link: Kembali ke beranda (No arrow) */}
         <div className="mb-6">
@@ -291,7 +291,7 @@ export const Register: React.FC = () => {
 
         {/* Heading & Intro */}
         <div data-aos="fade-up" className="mb-8">
-          <h1 className="font-condensed font-semibold text-[40px] text-carbon leading-tight mb-2">
+          <h1 className="font-condensed font-semibold text-[32px] sm:text-[40px] text-carbon leading-tight mb-2">
             Daftar akun
           </h1>
           <p className="font-sans text-base text-muted">
@@ -496,7 +496,7 @@ export const Register: React.FC = () => {
                   onBlur={() => handleBlur('pin')}
                   className="w-full font-mono tracking-widest bg-transparent border border-steel rounded-[4px] min-h-[44px] px-3 py-2 text-carbon focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 />
-                <div className="mt-1.5 flex items-center justify-between text-xs font-sans text-muted">
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-xs font-sans text-muted">
                   <span>Pemberitahuan: PIN konsumen dibatasi maksimal 6 angka.</span>
                   <span className="font-mono tabular-nums">{pin.length}/6</span>
                 </div>

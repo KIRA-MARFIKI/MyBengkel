@@ -265,7 +265,7 @@ export const Login: React.FC = () => {
       </div>
 
       {/* Right Column: Paper 50% (Full width on mobile) */}
-      <div className="w-full md:w-1/2 bg-paper text-carbon flex flex-col justify-center items-center px-6 py-12 md:p-12 lg:p-16 pb-28">
+      <div className="w-full md:w-1/2 bg-paper text-carbon flex flex-col justify-center items-center px-4 py-10 sm:px-6 sm:py-12 md:p-12 lg:p-16 pb-28">
         <div className="w-full max-w-[400px]">
           {/* Mobile wordmark above form */}
           <div className="md:hidden mb-8">
@@ -287,7 +287,7 @@ export const Login: React.FC = () => {
           {/* Heading */}
           <h1
             data-aos="fade-up"
-            className="font-condensed font-semibold text-[40px] text-carbon leading-tight mb-8"
+            className="font-condensed font-semibold text-[32px] sm:text-[40px] text-carbon leading-tight mb-6 sm:mb-8"
           >
             Masuk
           </h1>
@@ -423,11 +423,11 @@ export const Login: React.FC = () => {
               <div className="flex items-center gap-2 mb-2.5">
                 <div
                   aria-label="Kode captcha"
-                  className="flex-1 min-h-[44px] px-4 py-2 rounded-[4px] border border-steel bg-carbon/[0.04] flex items-center justify-center select-none relative overflow-hidden"
+                  className="flex-1 min-h-[44px] px-2 sm:px-4 py-2 rounded-[4px] border border-steel bg-carbon/[0.04] flex items-center justify-center select-none relative overflow-hidden"
                 >
                   <span
                     aria-hidden="true"
-                    className="font-mono font-bold text-[20px] tracking-[0.3em] text-carbon italic"
+                    className="font-mono font-bold text-[17px] sm:text-[20px] tracking-[0.2em] sm:tracking-[0.3em] text-carbon italic"
                   >
                     {captchaCode}
                   </span>
@@ -474,7 +474,7 @@ export const Login: React.FC = () => {
                   setForgotPwError('');
                   setShowForgotPassword(true);
                 }}
-                className="text-muted hover:text-carbon underline cursor-pointer transition-colors"
+                className="min-h-[44px] md:min-h-0 px-1 inline-flex items-center text-muted hover:text-carbon underline cursor-pointer transition-colors"
               >
                 Lupa Password?
               </button>
@@ -486,7 +486,7 @@ export const Login: React.FC = () => {
                   setForgotPinError('');
                   setShowForgotPin(true);
                 }}
-                className="text-muted hover:text-carbon underline cursor-pointer transition-colors"
+                className="min-h-[44px] md:min-h-0 px-1 inline-flex items-center text-muted hover:text-carbon underline cursor-pointer transition-colors"
               >
                 Lupa PIN?
               </button>

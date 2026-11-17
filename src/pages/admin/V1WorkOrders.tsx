@@ -900,8 +900,8 @@ const V1WorkOrders: React.FC = () => {
           {/* Jasa Table */}
           <div className="space-y-2">
             <div className="admin-micro text-[#646B7C]">Jasa</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-[14px] bg-white">
+            <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+              <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[460px]">
                 <thead>
                   <tr className="bg-[#F6F7FA] text-[#646B7C]">
                     <th className="py-2 px-3 admin-micro rounded-l-[12px]">Nama jasa</th>
@@ -949,8 +949,8 @@ const V1WorkOrders: React.FC = () => {
           {/* Part Table */}
           <div className="space-y-2">
             <div className="admin-micro text-[#646B7C]">Part</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-[14px] bg-white">
+            <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+              <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[460px]">
                 <thead>
                   <tr className="bg-[#F6F7FA] text-[#646B7C]">
                     <th className="py-2 px-3 admin-micro rounded-l-[12px]">Nama part</th>
@@ -1086,7 +1086,7 @@ const V1WorkOrders: React.FC = () => {
                       id="wo-mechanic"
                       value={selected.mechanicId || ''}
                       onChange={(e) => handleAssignMechanic(selected, e.target.value)}
-                      className="admin-input w-auto min-w-[220px]"
+                      className="admin-input w-full sm:w-auto sm:min-w-[220px]"
                     >
                       <option value="">Belum ditugaskan</option>
                       {activeMechanics.map((m) => (
@@ -1303,8 +1303,8 @@ const V1WorkOrders: React.FC = () => {
 
                       <div className="space-y-2.5">
                         <div className="admin-micro text-[#646B7C]">Jasa</div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse text-[14px] bg-white">
+                        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                          <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[480px]">
                             <thead>
                               <tr className="bg-[#F6F7FA] text-[#646B7C]">
                                 <th className="py-2.5 px-3.5 admin-micro rounded-l-[12px]">
@@ -1387,8 +1387,8 @@ const V1WorkOrders: React.FC = () => {
 
                       <div className="space-y-2.5 pt-3 border-t border-[#EEF0F4]">
                         <div className="admin-micro text-[#646B7C]">Part</div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse text-[14px] bg-white">
+                        <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                          <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[480px]">
                             <thead>
                               <tr className="bg-[#F6F7FA] text-[#646B7C]">
                                 <th className="py-2.5 px-3.5 admin-micro rounded-l-[12px]">

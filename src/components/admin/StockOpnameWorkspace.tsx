@@ -482,7 +482,7 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
           </div>
 
           {/* Quick Actions in Header */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {currentSession.status === 'disetujui' && isMasterGudang && (
               <ActionButton
                 intent="neutral"
@@ -585,13 +585,13 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
                 value={countSearch}
                 onChange={(e) => setCountSearch(e.target.value)}
                 placeholder="Cari kode atau nama part..."
-                className="admin-input !h-8 text-[12px] w-48 sm:w-56"
+                className="admin-input !h-8 text-[12px] w-full sm:w-56"
               />
-              <div className="flex items-center gap-1 p-0.5 bg-[#F3F4F6] rounded-[8px] text-[12px]">
+              <div className="flex flex-wrap items-center gap-1 p-0.5 bg-[#F3F4F6] rounded-[8px] text-[12px] w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setCountFilter('all')}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-all ${
+                  className={`px-2.5 py-1.5 sm:py-1 rounded-[6px] font-medium transition-all ${
                     countFilter === 'all' ? 'bg-white shadow-sm text-[#1E2230]' : 'text-[#646B7C]'
                   }`}
                 >
@@ -600,7 +600,7 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setCountFilter('sesuai')}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-all ${
+                  className={`px-2.5 py-1.5 sm:py-1 rounded-[6px] font-medium transition-all ${
                     countFilter === 'sesuai' ? 'bg-white shadow-sm text-[#1E2230]' : 'text-[#646B7C]'
                   }`}
                 >
@@ -609,7 +609,7 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setCountFilter('selisih')}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-all ${
+                  className={`px-2.5 py-1.5 sm:py-1 rounded-[6px] font-medium transition-all ${
                     countFilter === 'selisih' ? 'bg-white shadow-sm text-[#1E2230]' : 'text-[#646B7C]'
                   }`}
                 >
@@ -618,7 +618,7 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setCountFilter('belum')}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-all ${
+                  className={`px-2.5 py-1.5 sm:py-1 rounded-[6px] font-medium transition-all ${
                     countFilter === 'belum' ? 'bg-white shadow-sm text-[#1E2230]' : 'text-[#646B7C]'
                   }`}
                 >
@@ -628,19 +628,19 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
             </div>
           }
         >
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-[13px]">
+          <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            <table className="w-full text-left border-collapse text-[13px] min-w-[780px]">
               <thead>
                 <tr className="border-b border-[#EEF0F4] bg-[#F9FAFB] text-[#646B7C] font-semibold text-[12px]">
-                  <th className="py-2.5 px-3">Kode Part</th>
-                  <th className="py-2.5 px-3">Nama Part</th>
-                  <th className="py-2.5 px-3 text-center">Satuan</th>
-                  <th className="py-2.5 px-3 text-center">Jenis</th>
-                  <th className="py-2.5 px-3 text-right">Stok Sistem Saat Hitung</th>
-                  <th className="py-2.5 px-3 text-center">Stok Fisik</th>
-                  <th className="py-2.5 px-3 text-center">Selisih</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 min-w-[200px]">Alasan Selisih</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Kode Part</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Nama Part</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">Satuan</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">Jenis</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">Stok Sistem Saat Hitung</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">Stok Fisik</th>
+                  <th className="py-2.5 px-3 text-center whitespace-nowrap">Selisih</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
+                  <th className="py-2.5 px-3 min-w-[200px] whitespace-nowrap">Alasan Selisih</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EEF0F4]">
@@ -773,7 +773,7 @@ export const StockOpnameWorkspace: React.FC<StockOpnameWorkspaceProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             {isSessionEditable && (
               <>
                 <ActionButton

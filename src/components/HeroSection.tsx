@@ -81,7 +81,7 @@ export const HeroSection: React.FC = () => {
       </div>
 
       {/* Top Header: Brand on left, Auth controls on right */}
-      <header className="relative z-10 w-full px-6 pt-6 md:px-12 md:pt-8 flex items-center justify-between">
+      <header className="relative z-10 w-full px-4 pt-5 sm:px-6 sm:pt-6 md:px-12 md:pt-8 flex items-center justify-between gap-2">
         <span className="font-condensed font-bold text-[20px] tracking-normal text-paper select-none">
           {siteContent.brand}
         </span>
@@ -95,14 +95,14 @@ export const HeroSection: React.FC = () => {
               >
                 {getInitials(user?.name, user?.email)}
               </div>
-              <span className="font-sans text-sm font-medium text-paper max-w-[120px] sm:max-w-[200px] truncate">
+              <span className="font-sans text-sm font-medium text-paper max-w-[100px] sm:max-w-[200px] truncate">
                 {user?.name || user?.email}
               </span>
             </div>
             <button
               type="button"
               onClick={logout}
-              className="font-sans text-xs font-medium text-paper/80 hover:text-paper px-3 py-1.5 rounded-[4px] border border-steel/50 hover:border-steel bg-transparent hover:bg-paper/[0.06] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+              className="font-sans text-xs font-medium text-paper/80 hover:text-paper min-h-[44px] md:min-h-0 px-3 py-1.5 rounded-[4px] border border-steel/50 hover:border-steel bg-transparent hover:bg-paper/[0.06] transition-colors inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
             >
               Keluar
             </button>
@@ -111,13 +111,13 @@ export const HeroSection: React.FC = () => {
           <div className="flex items-center gap-2 sm:gap-3">
             <Link
               to="/login"
-              className="font-sans text-sm font-medium text-paper/90 hover:text-paper px-3 py-1.5 rounded-[4px] border border-steel/60 hover:border-steel bg-paper/[0.04] hover:bg-paper/[0.08] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+              className="font-sans text-sm font-medium text-paper/90 hover:text-paper min-h-[44px] md:min-h-0 px-3 py-1.5 rounded-[4px] border border-steel/60 hover:border-steel bg-paper/[0.04] hover:bg-paper/[0.08] transition-colors inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
             >
               Masuk
             </Link>
             <Link
               to="/register"
-              className="font-sans text-sm font-medium text-carbon bg-paper hover:bg-paper/90 px-3.5 py-1.5 rounded-[4px] transition-colors focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+              className="font-sans text-sm font-medium text-carbon bg-paper hover:bg-paper/90 min-h-[44px] md:min-h-0 px-3.5 py-1.5 rounded-[4px] transition-colors inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
             >
               Daftar
             </Link>
@@ -141,7 +141,7 @@ export const HeroSection: React.FC = () => {
 
         <p
           id="hero-subtitle"
-          className="font-sans font-normal text-[20px] text-paper/80 max-w-[36ch] mx-auto mt-4 text-center"
+          className="font-sans font-normal text-[16px] sm:text-[18px] md:text-[20px] text-paper/80 max-w-[36ch] mx-auto mt-4 text-center"
         >
           {siteContent.heroSubtitle}
         </p>
@@ -159,7 +159,7 @@ export const HeroSection: React.FC = () => {
       </div>
 
       {/* Bottom spacer */}
-      <div className="relative z-10 pb-8" />
+      <div className="relative z-10 pb-24 md:pb-8" />
     </section>
   );
 };

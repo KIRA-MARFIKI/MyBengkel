@@ -9,12 +9,12 @@ interface PageHeaderProps {
 
 // Page title: IBM Plex Sans 600, 24px, sentence case
 export const PageHeader: React.FC<PageHeaderProps> = ({ title, decision, action, className = '' }) => (
-  <div className={`flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5 ${className}`}>
-    <div>
+  <div className={`flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4 mb-5 ${className}`}>
+    <div className="min-w-0">
       <h1 className="admin-macro-page">{title}</h1>
       {decision && <p className="font-sans font-normal text-[14px] text-[#646B7C] mt-1">{decision}</p>}
     </div>
-    {action && <div className="shrink-0">{action}</div>}
+    {action && <div className="w-full sm:w-auto shrink-0">{action}</div>}
   </div>
 );
 

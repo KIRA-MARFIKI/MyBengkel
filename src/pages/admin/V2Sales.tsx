@@ -665,8 +665,8 @@ export const V2Sales: React.FC = () => {
               )}
 
               {/* Quantity Stepper & Add Button */}
-              <div className="flex items-end gap-3 pt-1">
-                <FormField id={qtyInputId} label="Jumlah" className="w-36">
+              <div className="flex flex-wrap items-end gap-3 pt-1">
+                <FormField id={qtyInputId} label="Jumlah" className="w-full sm:w-36">
                   <div className="flex items-center border border-[#D9DDE6] rounded-[10px] overflow-hidden bg-white">
                     <button
                       type="button"
@@ -759,16 +759,16 @@ export const V2Sales: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="overflow-x-auto border border-[#EEF0F4] rounded-[12px]">
-                  <table className="w-full text-left text-[13px]">
+                <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[12px]">
+                  <table className="w-full text-left text-[13px] min-w-[520px]">
                     <thead className="bg-[#F8F9FA] text-[#646B7C] font-semibold border-b border-[#EEF0F4]">
                       <tr>
-                        <th className="py-2.5 px-3">Kode Part</th>
-                        <th className="py-2.5 px-3">Nama Part</th>
-                        <th className="py-2.5 px-3 text-right">Harga</th>
-                        <th className="py-2.5 px-3 text-center">Jumlah</th>
-                        <th className="py-2.5 px-3 text-right">Subtotal</th>
-                        <th className="py-2.5 px-3 text-center">Aksi</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Kode Part</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Nama Part</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Harga</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap">Jumlah</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Subtotal</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EEF0F4]">
@@ -830,7 +830,7 @@ export const V2Sales: React.FC = () => {
                 </div>
 
                 {/* Grand Total Indicator */}
-                <div className="p-4 rounded-[14px] bg-[#F8F9FA] border border-[#EEF0F4] flex items-center justify-between">
+                <div className="p-4 rounded-[14px] bg-[#F8F9FA] border border-[#EEF0F4] flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-[12px] font-semibold text-[#646B7C] uppercase tracking-wider">
                       Grand Total Pembayaran
@@ -840,7 +840,7 @@ export const V2Sales: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <output className="font-sans font-extrabold text-[28px] text-[#1E2230] tabular-nums tracking-tight block">
+                    <output className="font-sans font-extrabold text-[24px] sm:text-[28px] text-[#1E2230] tabular-nums tracking-tight block">
                       <RollingNumber value={cartGrandTotal} format={formatRupiah} />
                     </output>
                   </div>
@@ -850,17 +850,17 @@ export const V2Sales: React.FC = () => {
           </DataCard>
 
           {/* Card 4: Metode Pembayaran & Checkout */}
-          <DataCard title="Metode Pembayaran" className="!p-5">
+          <DataCard title="Metode Pembayaran" className="!p-4 sm:!p-5">
             <div className="space-y-5">
               {/* Payment Method Selector Cards */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setPaymentMethod('Tunai');
                     if (activeCheckoutSale) handleCancelActiveCheckout();
                   }}
-                  className={`p-3.5 rounded-[14px] border text-left transition-all flex flex-col items-center justify-center gap-2 ${
+                  className={`p-3 sm:p-3.5 min-h-[44px] rounded-[14px] border text-left transition-all flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2.5 sm:gap-2 ${
                     paymentMethod === 'Tunai'
                       ? 'border-[#1D6FC4] bg-[#E4F2FE] text-[#1A64B0] shadow-sm ring-2 ring-[#1D6FC4]/20'
                       : 'border-[#D9DDE6] bg-white text-[#4B5563] hover:border-[#9CA3AF]'
@@ -876,7 +876,7 @@ export const V2Sales: React.FC = () => {
                     setPaymentMethod('Transfer');
                     if (activeCheckoutSale) handleCancelActiveCheckout();
                   }}
-                  className={`p-3.5 rounded-[14px] border text-left transition-all flex flex-col items-center justify-center gap-2 ${
+                  className={`p-3 sm:p-3.5 min-h-[44px] rounded-[14px] border text-left transition-all flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2.5 sm:gap-2 ${
                     paymentMethod === 'Transfer'
                       ? 'border-[#1D6FC4] bg-[#E4F2FE] text-[#1A64B0] shadow-sm ring-2 ring-[#1D6FC4]/20'
                       : 'border-[#D9DDE6] bg-white text-[#4B5563] hover:border-[#9CA3AF]'
@@ -892,7 +892,7 @@ export const V2Sales: React.FC = () => {
                     setPaymentMethod('QR');
                     if (activeCheckoutSale) handleCancelActiveCheckout();
                   }}
-                  className={`p-3.5 rounded-[14px] border text-left transition-all flex flex-col items-center justify-center gap-2 ${
+                  className={`p-3 sm:p-3.5 min-h-[44px] rounded-[14px] border text-left transition-all flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2.5 sm:gap-2 ${
                     paymentMethod === 'QR'
                       ? 'border-[#1D6FC4] bg-[#E4F2FE] text-[#1A64B0] shadow-sm ring-2 ring-[#1D6FC4]/20'
                       : 'border-[#D9DDE6] bg-white text-[#4B5563] hover:border-[#9CA3AF]'
@@ -962,7 +962,7 @@ export const V2Sales: React.FC = () => {
                   )}
 
                   {/* Kembalian / Sisa Bayar Indicator */}
-                  <div className="pt-3 border-t border-[#E5E7EB] flex items-center justify-between">
+                  <div className="pt-3 border-t border-[#E5E7EB] flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-[12px] text-[#646B7C] font-semibold">Kembalian</div>
                       <div
@@ -988,7 +988,7 @@ export const V2Sales: React.FC = () => {
                         !customerName.trim()
                       }
                       onClick={handleFinalizeCashSale}
-                      className="!h-[44px] !px-6"
+                      className="w-full sm:w-auto justify-center !h-[44px] !px-6"
                     >
                       Jual Part (Lunas)
                     </ActionButton>
@@ -1034,7 +1034,7 @@ export const V2Sales: React.FC = () => {
                   </div>
 
                   {!activeCheckoutSale ? (
-                    <div className="pt-2 flex items-center justify-between">
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2.5">
                       <span className="text-[12px] text-[#646B7C]">
                         Klik tombol di samping untuk mencatat checkout transfer.
                       </span>
@@ -1042,15 +1042,16 @@ export const V2Sales: React.FC = () => {
                         intent="start"
                         disabled={cartLines.length === 0 || !customerName.trim()}
                         onClick={handleStartTransferCheckout}
+                        className="w-full sm:w-auto justify-center"
                       >
                         Mulai Pembayaran Transfer
                       </ActionButton>
                     </div>
                   ) : (
                     <div className="space-y-3 pt-2">
-                      <div className="p-3 rounded-[10px] bg-[#FFF1DA] border border-[#FCD34D] flex items-center justify-between text-[13px] text-[#8A5A00]">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse" />
+                      <div className="p-3 rounded-[10px] bg-[#FFF1DA] border border-[#FCD34D] flex flex-wrap items-center justify-between gap-2 text-[13px] text-[#8A5A00]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse shrink-0" />
                           <span>
                             Menunggu transfer sebesar <strong>{formatRupiah(cartGrandTotal)}</strong> (Kode: {activeCheckoutSale.paymentReference || activeCheckoutSale.number})
                           </span>
@@ -1058,20 +1059,21 @@ export const V2Sales: React.FC = () => {
                         <StatusChip status="menunggu_pembayaran" />
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 pt-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                         <ActionButton
                           intent="cancel"
                           onClick={handleCancelActiveCheckout}
-                          className="!text-[12px]"
+                          className="!text-[12px] w-full sm:w-auto justify-center"
                         >
                           Batalkan Pembayaran
                         </ActionButton>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                           <ActionButton
                             intent="start"
                             disabled={true}
                             title="Menunggu konfirmasi pembayaran"
+                            className="flex-1 sm:flex-none justify-center"
                           >
                             Jual Part
                           </ActionButton>
@@ -1080,7 +1082,7 @@ export const V2Sales: React.FC = () => {
                           <ActionButton
                             intent="start"
                             onClick={handleSimulatePaymentReceived}
-                            className="!bg-[#15803D] hover:!bg-[#166534] !text-white"
+                            className="flex-1 sm:flex-none justify-center !bg-[#15803D] hover:!bg-[#166534] !text-white"
                           >
                             Simulasikan transfer diterima
                           </ActionButton>
@@ -1190,28 +1192,29 @@ export const V2Sales: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="p-3 rounded-[10px] bg-[#FFF1DA] border border-[#FCD34D] flex items-center justify-between text-[13px] text-[#8A5A00]">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse" />
+                      <div className="p-3 rounded-[10px] bg-[#FFF1DA] border border-[#FCD34D] flex flex-wrap items-center justify-between gap-2 text-[13px] text-[#8A5A00]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse shrink-0" />
                           <span>Menunggu konfirmasi QRIS...</span>
                         </div>
                         <StatusChip status="menunggu_pembayaran" />
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 pt-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                         <ActionButton
                           intent="cancel"
                           onClick={handleCancelActiveCheckout}
-                          className="!text-[12px]"
+                          className="!text-[12px] w-full sm:w-auto justify-center"
                         >
                           Batalkan QR
                         </ActionButton>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                           <ActionButton
                             intent="start"
                             disabled={true}
                             title="Menunggu konfirmasi pembayaran"
+                            className="flex-1 sm:flex-none justify-center"
                           >
                             Jual Part
                           </ActionButton>
@@ -1220,7 +1223,7 @@ export const V2Sales: React.FC = () => {
                           <ActionButton
                             intent="start"
                             onClick={handleSimulatePaymentReceived}
-                            className="!bg-[#15803D] hover:!bg-[#166534] !text-white"
+                            className="flex-1 sm:flex-none justify-center !bg-[#15803D] hover:!bg-[#166534] !text-white"
                           >
                             Simulasikan konfirmasi pembayaran lunas
                           </ActionButton>
@@ -1310,14 +1313,14 @@ export const V2Sales: React.FC = () => {
             </div>
 
             {/* Itemized Table */}
-            <div className="border border-[#EEF0F4] rounded-[12px] overflow-hidden">
-              <table className="w-full text-left text-[12px]">
+            <div className="border border-[#EEF0F4] rounded-[12px] overflow-x-auto [-webkit-overflow-scrolling:touch]">
+              <table className="w-full text-left text-[12px] min-w-[380px]">
                 <thead className="bg-[#F8F9FA] font-semibold text-[#646B7C] border-b border-[#EEF0F4]">
                   <tr>
-                    <th className="py-2 px-3">Part</th>
-                    <th className="py-2 px-2 text-center">Qty</th>
-                    <th className="py-2 px-3 text-right">Harga</th>
-                    <th className="py-2 px-3 text-right">Subtotal</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Part</th>
+                    <th className="py-2 px-2 text-center whitespace-nowrap">Qty</th>
+                    <th className="py-2 px-3 text-right whitespace-nowrap">Harga</th>
+                    <th className="py-2 px-3 text-right whitespace-nowrap">Subtotal</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF0F4]">

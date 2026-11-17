@@ -243,7 +243,7 @@ export const VerifyEmail: React.FC = () => {
         @keyframes mbPopIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
       `}</style>
 
-      <div className="w-full max-w-[480px] bg-white rounded-[16px] shadow-xl border border-[#D9DDE6] p-6 md:p-8 text-center overflow-hidden relative">
+      <div className="w-full max-w-[95vw] sm:max-w-[480px] bg-white rounded-[16px] shadow-xl border border-[#D9DDE6] p-5 sm:p-6 md:p-8 text-center overflow-hidden relative">
         <div className="flex justify-center mb-6">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1E2230]/5 text-[#1E2230] text-xs font-semibold">
             <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
@@ -354,7 +354,7 @@ export const VerifyEmail: React.FC = () => {
             <div className="pt-2">
               <Link
                 to="/login"
-                className="block w-full py-2.5 text-center text-xs font-semibold bg-[#1E2230] text-white rounded-[6px] hover:bg-[#2C3246] transition-colors"
+                className="flex items-center justify-center w-full min-h-[44px] py-2.5 text-center text-xs font-semibold bg-[#1E2230] text-white rounded-[6px] hover:bg-[#2C3246] transition-colors"
               >
                 Kembali ke Halaman Masuk
               </Link>

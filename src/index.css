@@ -516,6 +516,22 @@
     color: #FFFFFF;
     border: 1px solid #1E2230;
   }
+
+  @media (max-width: 767px) {
+    .admin-card {
+      padding: 16px;
+    }
+    .admin-action-btn,
+    .admin-btn,
+    .admin-tab-btn {
+      min-height: 44px;
+    }
+    .admin-icon-action-btn,
+    .admin-icon-btn {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
 }
 
 /* Saved-row highlight: soft amber tint flash */

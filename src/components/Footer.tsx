@@ -14,7 +14,7 @@ export const Footer: React.FC = () => {
       aria-label="Informasi kontak dan footer"
       className="relative w-full bg-paper text-carbon border-t border-steel pt-16 pb-[140px] z-10"
     >
-      <div className="w-full max-w-[1200px] mx-auto px-6">
+      <div className="w-full max-w-[1200px] mx-auto px-4 sm:px-6">
         {/* Three columns on desktop, one column on mobile in the same order */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
           {/* Left Column: Brand & Address */}
@@ -55,14 +55,14 @@ export const Footer: React.FC = () => {
                 </span>
                 <a
                   href="#booking"
-                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit min-h-[44px] md:min-h-0 inline-flex items-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 >
                   Jadwal Booking
                 </a>
                 <button
                   type="button"
                   onClick={logout}
-                  className="font-sans text-sm text-muted hover:text-carbon underline underline-offset-4 w-fit text-left focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                  className="font-sans text-sm text-muted hover:text-carbon underline underline-offset-4 w-fit min-h-[44px] md:min-h-0 inline-flex items-center text-left focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 >
                   Keluar
                 </button>
@@ -71,13 +71,13 @@ export const Footer: React.FC = () => {
               <div className="flex flex-col gap-2">
                 <Link
                   to="/login"
-                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit min-h-[44px] md:min-h-0 inline-flex items-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 >
                   Masuk
                 </Link>
                 <Link
                   to="/register"
-                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                  className="font-sans text-sm text-carbon hover:text-carbon underline underline-offset-4 w-fit min-h-[44px] md:min-h-0 inline-flex items-center focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 >
                   Daftar
                 </Link>

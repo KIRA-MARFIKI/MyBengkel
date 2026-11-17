@@ -241,7 +241,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
       aria-label="Keamanan Akun"
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-md p-3 sm:p-4 overflow-y-auto"
     >
-      <div className="relative w-full max-w-[620px] bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] overflow-hidden my-4 sm:my-6">
+      <div className="relative w-full max-w-[95vw] sm:max-w-[620px] max-h-[90dvh] overflow-y-auto bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] my-3 sm:my-6">
         {/* Header */}
         <div className="p-4 sm:p-6 md:p-8 bg-[#1E2230] text-white">
           <div className="flex items-center justify-between gap-3">
@@ -408,7 +408,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="Masukkan kata sandi saat ini"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 
@@ -424,7 +424,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   <button
                     type="button"
                     onClick={() => setShowPassword((s) => !s)}
-                    className="text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1"
+                    className="min-h-[44px] md:min-h-0 px-1 text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1"
                   >
                     {showPassword ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
                     <span>{showPassword ? 'Sembunyikan' : 'Tampilkan'}</span>
@@ -436,7 +436,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Minimal 8 karakter campuran"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
 
                 {/* Password Strength Meter */}
@@ -482,7 +482,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Ketik ulang kata sandi baru"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 
@@ -514,15 +514,15 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           {/* TAB 2: CHANGE EMAIL */}
           {activeTab === 'email' && (
             <form onSubmit={handleSubmitEmail} className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-[#EEF0F4]">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-2 pb-2 border-b border-[#EEF0F4]">
+                <div className="min-w-0 flex-1">
                   <h3 className="text-sm font-semibold text-[#1E2230]">Ganti Email Akun</h3>
                   <p className="text-xs text-[#646B7C]">
                     Perbarui email akun resmi Anda untuk mengaktifkan notifikasi dan pemulihan.
                   </p>
                 </div>
                 <span
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap shrink-0 ${
                     securitySetup.emailCompleted
                       ? 'bg-[#22C55E]/10 text-[#16A34A]'
                       : 'bg-[#FFBD59]/20 text-[#B45309]'
@@ -542,7 +542,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   readOnly
                   disabled
                   value={user?.email || ''}
-                  className="w-full px-3 py-2 text-sm bg-[#F6F7FA] border border-[#D9DDE6] rounded-[6px] text-[#646B7C] cursor-not-allowed font-mono"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm bg-[#F6F7FA] border border-[#D9DDE6] rounded-[6px] text-[#646B7C] cursor-not-allowed font-mono"
                 />
               </div>
 
@@ -560,7 +560,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="nama@domain-anda.com"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 
@@ -578,7 +578,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={confirmEmail}
                   onChange={(e) => setConfirmEmail(e.target.value)}
                   placeholder="Ketik ulang email baru"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 
@@ -683,7 +683,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   <button
                     type="button"
                     onClick={() => setShowPin((s) => !s)}
-                    className="text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1"
+                    className="min-h-[44px] md:min-h-0 px-1 text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1"
                   >
                     {showPin ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
                     <span>{showPin ? 'Sembunyikan' : 'Tampilkan'}</span>
@@ -697,7 +697,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
                   placeholder="123456789012"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] font-mono tracking-widest focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] font-mono tracking-widest focus:outline-none focus:border-[#1E2230]"
                 />
                 <span className="block text-[11px] text-[#646B7C] mt-1">
                   Panjang saat ini: <strong className="tabular-nums">{newPin.length}</strong> / 12 digit angka.
@@ -720,7 +720,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
                   placeholder="Ketik ulang 12 digit PIN baru"
-                  className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] font-mono tracking-widest focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] font-mono tracking-widest focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 

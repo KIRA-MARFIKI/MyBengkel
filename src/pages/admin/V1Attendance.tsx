@@ -453,15 +453,15 @@ const V1Attendance: React.FC = () => {
             </div>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-[14px] bg-white">
+          <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            <table className="w-full text-left border-collapse text-[14px] bg-white min-w-[520px]">
               <thead>
                 <tr className="bg-[#F6F7FA] text-[#646B7C]">
-                  <th className="py-2.5 px-3 admin-micro rounded-l-[12px]">ID Mekanik</th>
-                  <th className="py-2.5 px-3 admin-micro">Nama Mekanik</th>
-                  <th className="py-2.5 px-3 admin-micro">Nomor HP</th>
-                  <th className="py-2.5 px-3 admin-micro">Alamat</th>
-                  <th className="py-2.5 px-3 admin-micro text-right rounded-r-[12px]">Aksi</th>
+                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap rounded-l-[12px]">ID Mekanik</th>
+                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Nama Mekanik</th>
+                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Nomor HP</th>
+                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Alamat</th>
+                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap text-right rounded-r-[12px]">Aksi</th>
                 </tr>
               </thead>
               <tbody>

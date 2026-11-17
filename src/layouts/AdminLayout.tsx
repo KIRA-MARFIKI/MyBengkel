@@ -181,12 +181,12 @@ const AdminShell: React.FC = () => {
 
   return (
     <div className="admin-theme min-h-screen font-sans bg-[#EEF0F4] text-[#1E2230]">
-      <div className="max-w-[1360px] mx-auto px-4 pb-8 pt-4 md:px-6">
+      <div className="max-w-[1360px] mx-auto px-3 pb-8 pt-3 sm:px-4 sm:pt-4 md:px-6">
         <header
           data-admin-topbar
-          className="topbar relative rounded-[24px] min-h-[72px] bg-white shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-wrap items-center justify-between gap-3 px-4 py-2"
+          className="topbar relative rounded-[20px] md:rounded-[24px] min-h-[64px] md:min-h-[72px] bg-white shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3 sm:px-4 py-2"
         >
-          <nav aria-label="Navigasi utama" className="flex-1 min-w-0 overflow-x-auto">
+          <nav aria-label="Navigasi utama" className="flex-1 min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
             <div ref={topNavContainerRef} className="relative inline-flex items-stretch min-h-[56px]">
               <NavIsland containerRef={topNavContainerRef} activeKey={activeTop} />
               {visibleTopItems.map((item, idx) => {
@@ -200,12 +200,12 @@ const AdminShell: React.FC = () => {
                       to={item.to}
                       data-island-key={item.id}
                       aria-current={active ? 'page' : undefined}
-                      className={`relative z-10 flex flex-col items-center justify-center gap-1 px-5 py-1.5 rounded-[12px] no-underline transition-colors duration-200 ${
+                      className={`relative z-10 flex flex-col items-center justify-center gap-1 px-3.5 sm:px-5 py-1.5 rounded-[12px] no-underline transition-colors duration-200 ${
                         active ? 'text-[#1E2230] font-semibold' : 'text-[#646B7C] font-medium hover:text-[#1E2230]'
                       }`}
                     >
                       <NavIcon id={item.id} />
-                      <span data-island-label className="text-[13px] leading-tight whitespace-nowrap">
+                      <span data-island-label className="text-[12px] sm:text-[13px] leading-tight whitespace-nowrap">
                         {item.label}
                       </span>
                     </Link>
@@ -215,13 +215,13 @@ const AdminShell: React.FC = () => {
             </div>
           </nav>
 
-          <div className="flex items-center gap-2.5 shrink-0 bg-white rounded-full px-3 py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-[#EEF0F4]">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto bg-white rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-[#EEF0F4]">
             {!isHelpdeskOnly && (
               <Link
                 to="/admin"
                 aria-label={bellLabel}
                 title={bellLabel}
-                className="relative inline-flex items-center justify-center w-9 h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
+                className="relative inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path
@@ -246,7 +246,7 @@ const AdminShell: React.FC = () => {
               to="/admin/helpdesk"
               aria-label={ticketLabel}
               title={ticketLabel}
-              className="relative inline-flex items-center justify-center w-9 h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
+              className="relative inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
@@ -269,7 +269,7 @@ const AdminShell: React.FC = () => {
                 aria-haspopup="menu"
                 aria-expanded={avatarOpen}
                 onClick={() => setAvatarOpen((o) => !o)}
-                className="inline-flex items-center justify-center w-9 h-9 rounded-[12px] bg-[#FFBD59] text-[#1E2230] cursor-pointer transition-transform active:scale-95"
+                className="inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-[12px] bg-[#FFBD59] text-[#1E2230] cursor-pointer transition-transform active:scale-95"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <circle cx="10" cy="6.8" r="3" stroke="currentColor" strokeWidth="1.8" />
