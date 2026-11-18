@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../lib/mockAuth';
+import { useAuth, deriveFiveDigitPin } from '../lib/mockAuth';
 import { resetBodyScrollIfIdle } from '../components/admin/island/IslandSystem';
 import { EyeIcon, EyeOffIcon } from '../components/admin/ActionButton';
 import { gsap } from '../lib/gsap';
@@ -50,6 +50,8 @@ export const Register: React.FC = () => {
   // Validation errors
   const [errors, setErrors] = useState<RegisterErrors>({});
   const [submittedWithErrors, setSubmittedWithErrors] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const lainnyaWrapperRef = useRef<HTMLDivElement>(null);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
@@ -84,7 +86,7 @@ export const Register: React.FC = () => {
 
   // Field validators
   const validateName = (val: string): string | undefined => {
-    if (!val.trim()) return 'Nama lengkap harus diisi sesuai KTP atau identitas.';
+    if (!val.trim()) return 'Nama lengkap wajib diisi.';
     return undefined;
   };
 
@@ -117,7 +119,9 @@ export const Register: React.FC = () => {
     const trimmed = val.trim();
     if (!trimmed) return 'PIN harus diisi.';
     if (!/^\d+$/.test(trimmed)) return 'PIN hanya boleh berisi angka.';
-    if (trimmed.length > 6) return 'PIN maksimal 6 angka.';
+    if (trimmed.length < 4 || trimmed.length > 12) {
+      return 'PIN harus terdiri dari 4 hingga 12 angka.';
+    }
     return undefined;
   };
 
@@ -223,8 +227,10 @@ export const Register: React.FC = () => {
     setErrors((prev) => ({ ...prev, [field]: err }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setSubmitError('');
 
     const newErrors: RegisterErrors = {
       name: validateName(name),
@@ -258,20 +264,30 @@ export const Register: React.FC = () => {
     }
 
     setSubmittedWithErrors(false);
-    const resolvedMotorType = motorType === 'Lainnya' ? customMotorType.trim() : motorType.trim();
-    registerCustomer({
-      email: email.trim(),
-      name: name.trim(),
-      plate: plateNumber.trim().toUpperCase(),
-      engineNo: engineNumber.trim().toUpperCase(),
-      frameNo: frameNumber.trim().toUpperCase(),
-      address: address.trim(),
-      motorType: resolvedMotorType,
-      vehicleModel: resolvedMotorType,
-      password,
-      pin: pin.trim(),
-    });
-    navigate('/#booking');
+    setIsSubmitting(true);
+    try {
+      const resolvedMotorType = motorType === 'Lainnya' ? customMotorType.trim() : motorType.trim();
+      const res = await registerCustomer({
+        email: email.trim(),
+        name: name.trim(),
+        plate: plateNumber.trim().toUpperCase(),
+        engineNo: engineNumber.trim().toUpperCase(),
+        frameNo: frameNumber.trim().toUpperCase(),
+        address: address.trim(),
+        motorType: resolvedMotorType,
+        vehicleModel: resolvedMotorType,
+        password,
+        pin: pin.trim(),
+      });
+      if (!res.ok) {
+        setSubmitError(res.error || 'Gagal menyimpan pendaftaran akun ke database.');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      navigate('/#booking');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const errorList = Object.entries(errors).filter(([_, msg]) => !!msg);
@@ -298,6 +314,15 @@ export const Register: React.FC = () => {
             Isi sesuai STNK. Data ini dipakai untuk booking servis.
           </p>
         </div>
+
+        {submitError && (
+          <div
+            role="alert"
+            className="border border-alert bg-alert/[0.06] p-4 rounded-[4px] mb-6 text-sm font-sans text-alert"
+          >
+            {submitError}
+          </div>
+        )}
 
         {/* Error Summary at top when submitted with errors */}
         {submittedWithErrors && errorList.length > 0 && (
@@ -457,14 +482,14 @@ export const Register: React.FC = () => {
                 )}
               </div>
 
-              {/* PIN Konsumen (Maksimal 6 angka) */}
+              {/* PIN Konsumen (4 hingga 12 angka) */}
               <div id="field-pin">
                 <div className="flex items-center justify-between mb-1">
                   <label
                     htmlFor="reg-pin"
                     className="font-sans font-medium text-[15px] text-carbon block"
                   >
-                    PIN keamanan (maksimal 6 angka)
+                    PIN keamanan (4 hingga 12 angka)
                   </label>
                   <button
                     type="button"
@@ -477,17 +502,17 @@ export const Register: React.FC = () => {
                   </button>
                 </div>
                 <span className="font-sans text-xs text-muted block mb-2">
-                  Maksimal 6 angka. Gunakan PIN ini saat masuk ke akun Anda.
+                  Masukkan 4 hingga 12 angka (disarankan 12 angka agar tersedia PIN cepat 5 digit otomatis dari belakang).
                 </span>
                 <input
                   id="reg-pin"
                   type={showPin ? 'text' : 'password'}
                   inputMode="numeric"
-                  maxLength={6}
-                  placeholder="Contoh: 123456"
+                  maxLength={12}
+                  placeholder="Contoh: 123456789012"
                   value={pin}
                   onChange={(e) => {
-                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 12);
                     setPin(digitsOnly);
                     if (errors.pin) {
                       setErrors((prev) => ({ ...prev, pin: undefined }));
@@ -496,9 +521,14 @@ export const Register: React.FC = () => {
                   onBlur={() => handleBlur('pin')}
                   className="w-full font-mono tracking-widest bg-transparent border border-steel rounded-[4px] min-h-[44px] px-3 py-2 text-carbon focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 />
-                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-xs font-sans text-muted">
-                  <span>Pemberitahuan: PIN konsumen dibatasi maksimal 6 angka.</span>
-                  <span className="font-mono tabular-nums">{pin.length}/6</span>
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-sans text-muted">
+                  <span>
+                    PIN Cepat 5 Digit (Otomatis):{' '}
+                    <strong className="font-mono text-carbon">
+                      {pin.length >= 5 ? deriveFiveDigitPin(pin) : '-----'}
+                    </strong>
+                  </span>
+                  <span className="font-mono tabular-nums">{pin.length}/12</span>
                 </div>
                 {errors.pin && (
                   <p className="text-alert font-sans text-sm mt-1.5">{errors.pin}</p>
@@ -700,9 +730,10 @@ export const Register: React.FC = () => {
           <div>
             <button
               type="submit"
-              className="w-full md:w-auto inline-flex items-center justify-center bg-carbon text-paper font-sans font-medium text-[16px] px-8 py-3 rounded-[4px] min-h-[44px] transition-transform active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+              disabled={isSubmitting}
+              className="w-full md:w-auto inline-flex items-center justify-center bg-carbon text-paper font-sans font-medium text-[16px] px-8 py-3 rounded-[4px] min-h-[44px] transition-transform active:scale-[0.98] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
             >
-              Daftar
+              {isSubmitting ? 'Menyimpan...' : 'Daftar'}
             </button>
           </div>
 

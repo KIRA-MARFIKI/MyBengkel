@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { useAuth, authenticateCredentials } from '../lib/mockAuth';
+import { useAuth, authenticateCredentialsAsync } from '../lib/mockAuth';
 import { resetBodyScrollIfIdle } from '../components/admin/island/IslandSystem';
 import { EyeIcon, EyeOffIcon, RefreshIcon, ActionButton } from '../components/admin/ActionButton';
 import { CenterDialog } from '../components/admin/CenterDialog';
@@ -123,6 +123,7 @@ export const Login: React.FC = () => {
   const [pinError, setPinError] = useState<string>('');
   const [captchaError, setCaptchaError] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const refreshCaptcha = useCallback(() => {
     setCaptchaCode(generateCaptchaCode());
@@ -196,8 +197,9 @@ export const Login: React.FC = () => {
     validatePin(pin);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setAuthError('');
 
     const isEmailValid = validateEmail(email);
@@ -209,26 +211,31 @@ export const Login: React.FC = () => {
       return;
     }
 
-    const result = authenticateCredentials(email, password, pin);
-    if (!result.ok) {
-      setAuthError(result.error || 'Email, kata sandi, atau PIN tidak sesuai.');
-      setCaptchaCode(generateCaptchaCode());
-      setCaptchaInput('');
-      return;
-    }
+    setIsSubmitting(true);
+    try {
+      const result = await authenticateCredentialsAsync(email, password, pin);
+      if (!result.ok) {
+        setAuthError(result.error || 'Email, kata sandi, atau PIN tidak sesuai.');
+        setCaptchaCode(generateCaptchaCode());
+        setCaptchaInput('');
+        return;
+      }
 
-    if (result.role === 'admin' || result.role === 'master_admin') {
-      login(result.role, result.profile || { email: email.trim() });
-      const destination = next && next.startsWith('/admin') ? next : '/admin';
-      navigate(destination);
-    } else if (result.role === 'master_helpdesk') {
-      login('master_helpdesk', result.profile);
-      navigate('/admin/helpdesk');
-    } else {
-      login('customer', result.profile);
-      const destination =
-        next && !next.startsWith('/admin') && next !== '/' ? next : '/#booking';
-      navigate(destination);
+      if (result.role === 'admin' || result.role === 'master_admin') {
+        login(result.role, result.profile || { email: email.trim() });
+        const destination = next && next.startsWith('/admin') ? next : '/admin';
+        navigate(destination);
+      } else if (result.role === 'master_helpdesk') {
+        login('master_helpdesk', result.profile);
+        navigate('/admin/helpdesk');
+      } else {
+        login('customer', result.profile);
+        const destination =
+          next && !next.startsWith('/admin') && next !== '/' ? next : '/#booking';
+        navigate(destination);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -496,9 +503,10 @@ export const Login: React.FC = () => {
             <div>
               <button
                 type="submit"
-                className="w-full bg-carbon text-paper font-sans font-medium text-[16px] py-3 rounded-[4px] min-h-[44px] transition-transform active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
+                disabled={isSubmitting}
+                className="w-full bg-carbon text-paper font-sans font-medium text-[16px] py-3 rounded-[4px] min-h-[44px] transition-transform active:scale-[0.98] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
               >
-                Masuk
+                {isSubmitting ? 'Memproses...' : 'Masuk'}
               </button>
             </div>
 

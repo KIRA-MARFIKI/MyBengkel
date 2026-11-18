@@ -822,7 +822,7 @@ export const BookingSection: React.FC = () => {
                 type="text"
                 value={profileForm.name}
                 onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Nama lengkap sesuai KTP"
+                placeholder="Masukkan nama lengkap"
                 className="w-full px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 required
               />

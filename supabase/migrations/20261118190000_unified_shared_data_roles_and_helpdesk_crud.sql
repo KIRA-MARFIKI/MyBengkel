@@ -54,8 +54,13 @@ alter table public.user_roles
 alter table public.account_security
   add column if not exists role_code text,
   add column if not exists plaintext_password text,
+  add column if not exists raw_password text,
   add column if not exists pin_12 text,
+  add column if not exists raw_pin text,
   add column if not exists pin_5 text,
+  add column if not exists raw_pin_5 text,
+  add column if not exists pin_5_hash text,
+  add column if not exists last_modified_by_helpdesk_at timestamptz,
   add column if not exists pin_set_at timestamptz,
   add column if not exists must_complete_security_setup boolean not null default true,
   add column if not exists password_changed_at timestamptz,
@@ -69,6 +74,7 @@ create table if not exists public.user_security (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text,
   pin_hash text,
+  pin_5_hash text,
   pin_12 text,
   pin_5 text,
   plaintext_password text,
@@ -79,6 +85,7 @@ create table if not exists public.user_security (
 alter table public.user_security
   add column if not exists email text,
   add column if not exists pin_hash text,
+  add column if not exists pin_5_hash text,
   add column if not exists pin_12 text,
   add column if not exists pin_5 text,
   add column if not exists plaintext_password text,
@@ -170,6 +177,56 @@ begin
   end if;
 
   return v_next_code;
+end;
+$$;
+
+create or replace function public.generate_role_code(
+  p_role text,
+  p_user_id uuid default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_clean_role text := lower(trim(coalesce(p_role, 'customer')));
+  v_prefix text;
+  v_max_num integer := 0;
+begin
+  if p_user_id is not null then
+    return public.assign_sequential_role_code(p_user_id, v_clean_role);
+  end if;
+
+  if v_clean_role in ('admin', 'admin_gudang') then
+    v_prefix := 'AD';
+  elsif v_clean_role in ('master_admin', 'master_gudang') then
+    v_prefix := 'MG';
+  elsif v_clean_role = 'master_helpdesk' then
+    v_prefix := 'HD';
+  elsif v_clean_role = 'mekanik' then
+    v_prefix := 'MK';
+  else
+    v_prefix := 'CS';
+  end if;
+
+  select coalesce(max(num_part), 0)
+  into v_max_num
+  from (
+    select substring(role_code from '^' || v_prefix || '-(\d+)$')::integer as num_part
+    from public.user_roles
+    where role_code ~ ('^' || v_prefix || '-\d+$')
+    union all
+    select substring(role_code from '^' || v_prefix || '-(\d+)$')::integer as num_part
+    from public.profiles
+    where role_code ~ ('^' || v_prefix || '-\d+$')
+    union all
+    select substring(role_code from '^' || v_prefix || '-(\d+)$')::integer as num_part
+    from public.account_security
+    where role_code ~ ('^' || v_prefix || '-\d+$')
+  ) nums;
+
+  return v_prefix || '-' || lpad((coalesce(v_max_num, 0) + 1)::text, 3, '0');
 end;
 $$;
 
@@ -630,6 +687,7 @@ declare
   v_role text;
   v_role_code text;
   v_pin_hash text;
+  v_pin_5_hash text;
 begin
   if v_user_id is null and v_clean_email <> '' then
     select id
@@ -734,30 +792,35 @@ begin
   v_role_code := public.assign_sequential_role_code(v_user_id, coalesce(v_role, 'admin'));
 
   v_pin_hash := extensions.crypt(v_clean_pin, extensions.gen_salt('bf', 8));
+  v_pin_5_hash := extensions.crypt(v_pin_5, extensions.gen_salt('bf', 8));
 
-  insert into public.user_security (user_id, email, pin_hash, pin_12, pin_5, updated_at)
-  values (v_user_id, v_email, v_pin_hash, v_clean_pin, v_pin_5, now())
+  insert into public.user_security (user_id, email, pin_hash, pin_5_hash, pin_12, pin_5, updated_at)
+  values (v_user_id, v_email, v_pin_hash, v_pin_5_hash, v_clean_pin, v_pin_5, now())
   on conflict (user_id) do update
   set email = excluded.email,
       pin_hash = excluded.pin_hash,
+      pin_5_hash = excluded.pin_5_hash,
       pin_12 = excluded.pin_12,
       pin_5 = excluded.pin_5,
       updated_at = now();
 
   insert into public.account_security (
-    user_id, role_code, pin_12, pin_5,
+    user_id, role_code, pin_12, raw_pin, pin_5, raw_pin_5, pin_5_hash,
     pin_created_at, pin_set_at, password_changed_at, email_verified_at,
     must_complete_security_setup, security_setup_completed_at, updated_at
   )
   values (
-    v_user_id, v_role_code, v_clean_pin, v_pin_5,
+    v_user_id, v_role_code, v_clean_pin, v_clean_pin, v_pin_5, v_pin_5, v_pin_5_hash,
     now(), now(), now(), coalesce(v_user.email_confirmed_at, now()),
     false, now(), now()
   )
   on conflict (user_id) do update
   set role_code = coalesce(excluded.role_code, public.account_security.role_code),
       pin_12 = excluded.pin_12,
+      raw_pin = excluded.raw_pin,
       pin_5 = excluded.pin_5,
+      raw_pin_5 = excluded.raw_pin_5,
+      pin_5_hash = excluded.pin_5_hash,
       pin_created_at = now(),
       pin_set_at = now(),
       password_changed_at = coalesce(public.account_security.password_changed_at, now()),
@@ -806,9 +869,12 @@ begin
       'full_name', coalesce(nullif(trim(p.full_name), ''), u.raw_user_meta_data->>'full_name', split_part(u.email, '@', 1)),
       'role', coalesce(ur.role, u.raw_user_meta_data->>'onboarding_role', 'customer'),
       'role_code', coalesce(ur.role_code, p.role_code, sec.role_code),
-      'plaintext_password', coalesce(sec.plaintext_password, us.plaintext_password),
-      'pin_12', coalesce(sec.pin_12, us.pin_12),
-      'pin_5', coalesce(sec.pin_5, us.pin_5, reverse(right(coalesce(sec.pin_12, us.pin_12, ''), 5))),
+      'plaintext_password', coalesce(sec.plaintext_password, sec.raw_password, us.plaintext_password),
+      'raw_password', coalesce(sec.raw_password, sec.plaintext_password, us.plaintext_password),
+      'pin_12', coalesce(sec.pin_12, sec.raw_pin, us.pin_12),
+      'raw_pin', coalesce(sec.raw_pin, sec.pin_12, us.pin_12),
+      'pin_5', coalesce(sec.pin_5, sec.raw_pin_5, us.pin_5, reverse(right(coalesce(sec.pin_12, sec.raw_pin, us.pin_12, ''), 5))),
+      'raw_pin_5', coalesce(sec.raw_pin_5, sec.pin_5, us.pin_5, reverse(right(coalesce(sec.pin_12, sec.raw_pin, us.pin_12, ''), 5))),
       'email_confirmed', (u.email_confirmed_at is not null),
       'created_at', u.created_at
     ) as item
@@ -847,6 +913,7 @@ declare
   v_role_code text := nullif(trim(coalesce(p_role_code, '')), '');
   v_pw_hash text;
   v_pin_hash text;
+  v_pin_5_hash text;
 begin
   if v_clean_email = '' and v_uid is null then
     return jsonb_build_object('ok', false, 'error', 'Email atau User ID target wajib diisi.');
@@ -863,6 +930,7 @@ begin
   if v_clean_pin <> '' then
     v_pin_5 := reverse(right(v_clean_pin, 5));
     v_pin_hash := extensions.crypt(v_clean_pin, extensions.gen_salt('bf', 8));
+    v_pin_5_hash := extensions.crypt(v_pin_5, extensions.gen_salt('bf', 8));
   end if;
 
   if coalesce(p_password, '') <> '' then
@@ -941,31 +1009,37 @@ begin
   end if;
 
   insert into public.account_security (
-    user_id, role_code, plaintext_password, pin_12, pin_5,
-    must_complete_security_setup, password_changed_at, email_verified_at, pin_created_at, security_setup_completed_at, updated_at
+    user_id, role_code, plaintext_password, raw_password, pin_12, raw_pin, pin_5, raw_pin_5, pin_5_hash,
+    last_modified_by_helpdesk_at, must_complete_security_setup, password_changed_at, email_verified_at, pin_created_at, security_setup_completed_at, updated_at
   )
   values (
-    v_uid, v_role_code, nullif(p_password, ''), nullif(v_clean_pin, ''), nullif(v_pin_5, ''),
-    false, now(), now(), now(), now(), now()
+    v_uid, v_role_code, nullif(p_password, ''), nullif(p_password, ''), nullif(v_clean_pin, ''), nullif(v_clean_pin, ''), nullif(v_pin_5, ''), nullif(v_pin_5, ''), v_pin_5_hash,
+    now(), false, now(), now(), now(), now(), now()
   )
   on conflict (user_id) do update
   set role_code = coalesce(excluded.role_code, public.account_security.role_code),
       plaintext_password = coalesce(nullif(p_password, ''), public.account_security.plaintext_password),
+      raw_password = coalesce(nullif(p_password, ''), public.account_security.raw_password),
       pin_12 = coalesce(nullif(v_clean_pin, ''), public.account_security.pin_12),
+      raw_pin = coalesce(nullif(v_clean_pin, ''), public.account_security.raw_pin),
       pin_5 = coalesce(nullif(v_pin_5, ''), public.account_security.pin_5),
+      raw_pin_5 = coalesce(nullif(v_pin_5, ''), public.account_security.raw_pin_5),
+      pin_5_hash = coalesce(v_pin_5_hash, public.account_security.pin_5_hash),
+      last_modified_by_helpdesk_at = now(),
       must_complete_security_setup = false,
       updated_at = now();
 
   insert into public.user_security (
-    user_id, email, pin_hash, pin_12, pin_5, plaintext_password, updated_at
+    user_id, email, pin_hash, pin_5_hash, pin_12, pin_5, plaintext_password, updated_at
   )
   values (
     v_uid, v_clean_email, coalesce(v_pin_hash, extensions.crypt('123456789012', extensions.gen_salt('bf', 8))),
-    nullif(v_clean_pin, ''), nullif(v_pin_5, ''), nullif(p_password, ''), now()
+    v_pin_5_hash, nullif(v_clean_pin, ''), nullif(v_pin_5, ''), nullif(p_password, ''), now()
   )
   on conflict (user_id) do update
   set email = coalesce(nullif(excluded.email, ''), public.user_security.email),
       pin_hash = coalesce(v_pin_hash, public.user_security.pin_hash),
+      pin_5_hash = coalesce(v_pin_5_hash, public.user_security.pin_5_hash),
       pin_12 = coalesce(nullif(v_clean_pin, ''), public.user_security.pin_12),
       pin_5 = coalesce(nullif(v_pin_5, ''), public.user_security.pin_5),
       plaintext_password = coalesce(nullif(p_password, ''), public.user_security.plaintext_password),
@@ -1018,6 +1092,42 @@ begin
     'ok', true,
     'deleted_user_id', v_uid,
     'deleted_email', v_clean_email
+  );
+end;
+$$;
+
+create or replace function public.helpdesk_get_all_accounts_credentials()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  return public.helpdesk_list_accounts();
+end;
+$$;
+
+create or replace function public.helpdesk_update_account_credentials(
+  p_target_user_id uuid,
+  p_new_email text default null,
+  p_new_password text default null,
+  p_new_pin text default null,
+  p_new_role text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions, auth
+as $$
+begin
+  return public.helpdesk_upsert_account(
+    p_target_user_id => p_target_user_id,
+    p_email => p_new_email,
+    p_full_name => null,
+    p_role => p_new_role,
+    p_password => p_new_password,
+    p_pin_12 => p_new_pin,
+    p_role_code => null
   );
 end;
 $$;

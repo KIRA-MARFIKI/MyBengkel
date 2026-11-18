@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   useAdmin,
-  pushSharedWorkshopStateToSupabase,
   recordAuditEvent,
 } from '../../context/AdminContext';
 import { useAuth } from '../../lib/mockAuth';
@@ -10,14 +9,6 @@ import {
   deriveFiveDigitPin,
   getRoleDisplayName,
   formatRoleBadgeLabel,
-  getManagedAccounts,
-  getDeletedAccountEmails,
-  getNextRoleCodeForAccounts,
-  saveManagedAccounts,
-  upsertManagedAccount,
-  removeManagedAccount,
-  type ManagedAccountRecord,
-  type ManagedAccountRole,
 } from '../../lib/mockCredentials';
 import type {
   HelpDeskTicket,
@@ -45,6 +36,48 @@ type HelpdeskTab =
   | 'corrections'
   | 'knowledge'
   | 'audit';
+
+type HelpdeskRoleType =
+  | 'admin'
+  | 'admin_gudang'
+  | 'master_admin'
+  | 'master_gudang'
+  | 'master_helpdesk'
+  | 'mekanik'
+  | 'customer';
+
+interface HelpdeskDbAccount {
+  userId: string;
+  email: string;
+  fullName: string;
+  phone: string | null;
+  role: HelpdeskRoleType;
+  roleCode: string;
+  rawPassword: string | null;
+  rawPin: string | null;
+  rawPin5: string | null;
+  hasPin: boolean;
+  emailVerifiedAt: string | null;
+  passwordChangedAt: string | null;
+  pinSetAt: string | null;
+  mustCompleteSecuritySetup: boolean;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+}
+
+interface HelpdeskRecoveryRequestRow {
+  id: string;
+  userId: string | null;
+  email: string;
+  fullName: string | null;
+  role: string;
+  roleCode: string | null;
+  status: string;
+  requestedAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  notes: string | null;
+}
 
 const CATEGORIES: TicketCategory[] = [
   'Bug / Kendala Aplikasi',
@@ -96,11 +129,15 @@ export const HelpDeskCenter: React.FC = () => {
   const [activeTab, setActiveTab] = useState<HelpdeskTab>('overview');
 
   // -------------------------------------------------------------
-  // HELPDESK ACCOUNT & ACCESS CRUD STATE
+  // 100% REAL DATABASE ACCOUNT & RECOVERY REQUEST STATE (NO DUMMY DATA)
   // -------------------------------------------------------------
-  const [accounts, setAccounts] = useState<ManagedAccountRecord[]>(() => getManagedAccounts());
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [accountsError, setAccountsError] = useState('');
+  const [accounts, setAccounts] = useState<HelpdeskDbAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState<boolean>(true);
+  const [accountsError, setAccountsError] = useState<string>('');
+  const [recoveryRequests, setRecoveryRequests] = useState<HelpdeskRecoveryRequestRow[]>([]);
+  const [recoveryError, setRecoveryError] = useState<string>('');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>('');
+
   const [accountRoleFilter, setAccountRoleFilter] = useState<string>('Semua');
   const [accountSearch, setAccountSearch] = useState('');
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
@@ -109,11 +146,11 @@ export const HelpDeskCenter: React.FC = () => {
 
   // Add / Edit Account Modal State
   const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<ManagedAccountRecord | null>(null);
+  const [editingAccount, setEditingAccount] = useState<HelpdeskDbAccount | null>(null);
   const [accFormName, setAccFormName] = useState('');
+  const [accFormPhone, setAccFormPhone] = useState('');
   const [accFormEmail, setAccFormEmail] = useState('');
-  const [accFormRole, setAccFormRole] = useState<ManagedAccountRole>('admin');
-  const [accFormRoleCode, setAccFormRoleCode] = useState('');
+  const [accFormRole, setAccFormRole] = useState<HelpdeskRoleType>('admin');
   const [accFormPassword, setAccFormPassword] = useState('');
   const [accFormShowPassword, setAccFormShowPassword] = useState(true);
   const [accFormPin12, setAccFormPin12] = useState('123456789012');
@@ -122,90 +159,214 @@ export const HelpDeskCenter: React.FC = () => {
   const [accFormSaving, setAccFormSaving] = useState(false);
 
   // Delete Account Modal State
-  const [deleteTarget, setDeleteTarget] = useState<ManagedAccountRecord | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<HelpdeskDbAccount | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  const loadAccountsFromServer = useCallback(async () => {
-    const localList = getManagedAccounts();
-    setAccounts(localList);
-    if (!canManageAccounts) return;
+  // Purge obsolete browser mock keys on mount so stale cache never pollutes Helpdesk UI
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('mock-registered-customer');
+        localStorage.removeItem('mock-registered-customers-list');
+        localStorage.removeItem('mb_managed_accounts_v1');
+        localStorage.removeItem('mb_deleted_accounts_v1');
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
 
+  const loadAccountsFromServer = useCallback(async () => {
     setAccountsLoading(true);
     setAccountsError('');
+    setRecoveryError('');
+
     try {
-      const { data, error } = await supabase.rpc('helpdesk_list_accounts');
-      if (error) {
-        setAccountsError(
-          `Menggunakan data lokal (sinkronisasi server tertunda: ${error.message}).`
+      let res = await supabase.rpc('helpdesk_get_all_accounts_credentials');
+      if (
+        res.error &&
+        (res.error.code === 'PGRST202' ||
+          String(res.error.message || '').includes('Could not find the function'))
+      ) {
+        res = await supabase.rpc('helpdesk_list_accounts');
+      }
+
+      if (res.error) {
+        setAccounts([]);
+        setAccountsError(`Gagal memuat akun dari Supabase: ${res.error.message}`);
+      } else {
+        const rawList = Array.isArray((res.data as any)?.accounts)
+          ? ((res.data as any).accounts as any[])
+          : [];
+
+        const normalized: HelpdeskDbAccount[] = rawList
+          .filter((item) => item && item.user_id && item.email)
+          .map((item) => {
+            const rawRole = String(item.role || 'customer').trim().toLowerCase();
+            const roleTyped: HelpdeskRoleType =
+              rawRole === 'master_admin' || rawRole === 'master_gudang'
+                ? 'master_admin'
+                : rawRole === 'master_helpdesk'
+                ? 'master_helpdesk'
+                : rawRole === 'admin' || rawRole === 'admin_gudang'
+                ? 'admin'
+                : rawRole === 'mekanik'
+                ? 'mekanik'
+                : 'customer';
+
+            const rawPassword =
+              typeof item.raw_password === 'string' && item.raw_password !== ''
+                ? item.raw_password
+                : typeof item.plaintext_password === 'string' && item.plaintext_password !== ''
+                ? item.plaintext_password
+                : null;
+
+            const rawPin =
+              typeof item.raw_pin === 'string' && item.raw_pin !== ''
+                ? item.raw_pin
+                : typeof item.pin_12 === 'string' && item.pin_12 !== ''
+                ? item.pin_12
+                : null;
+
+            const rawPin5 =
+              typeof item.raw_pin_5 === 'string' && item.raw_pin_5 !== ''
+                ? item.raw_pin_5
+                : typeof item.pin_5 === 'string' && item.pin_5 !== ''
+                ? item.pin_5
+                : rawPin
+                ? deriveFiveDigitPin(rawPin)
+                : null;
+
+            return {
+              userId: String(item.user_id),
+              email: String(item.email).trim().toLowerCase(),
+              fullName: String(item.full_name || String(item.email).split('@')[0]),
+              phone: item.phone ? String(item.phone) : null,
+              role: roleTyped,
+              roleCode: item.role_code ? String(item.role_code) : '-',
+              rawPassword,
+              rawPin,
+              rawPin5,
+              hasPin: Boolean(item.has_pin || rawPin),
+              emailVerifiedAt: item.email_verified_at ? String(item.email_verified_at) : null,
+              passwordChangedAt: item.password_changed_at ? String(item.password_changed_at) : null,
+              pinSetAt: item.pin_set_at ? String(item.pin_set_at) : null,
+              mustCompleteSecuritySetup: Boolean(item.must_complete_security_setup),
+              createdAt: item.created_at ? String(item.created_at) : null,
+              lastSignInAt: item.last_sign_in_at ? String(item.last_sign_in_at) : null,
+            };
+          });
+
+        setAccounts(normalized);
+        setLastSyncedAt(
+          new Date().toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
         );
-        return;
       }
-
-      const rawList = Array.isArray((data as any)?.accounts) ? ((data as any).accounts as any[]) : [];
-      const deletedSet = new Set(getDeletedAccountEmails());
-      const mergedMap = new Map<string, ManagedAccountRecord>();
-
-      for (const item of localList) {
-        mergedMap.set(item.email.toLowerCase().trim(), item);
-      }
-
-      for (const remote of rawList) {
-        const email = String(remote?.email || '').trim().toLowerCase();
-        if (!email || deletedSet.has(email)) continue;
-
-        const existing = mergedMap.get(email);
-        const normalizedRole = (String(remote?.role || existing?.role || 'customer')
-          .trim()
-          .toLowerCase() || 'customer') as ManagedAccountRole;
-
-        const currentListSnapshot = Array.from(mergedMap.values());
-        const remoteRoleCode = String(remote?.role_code || '').trim();
-        const resolvedRoleCode =
-          remoteRoleCode ||
-          existing?.roleCode ||
-          getNextRoleCodeForAccounts(normalizedRole, currentListSnapshot);
-
-        const resolvedPin12 = String(remote?.pin_12 || existing?.pin12 || '')
-          .replace(/\D/g, '');
-        const resolvedPin5 =
-          String(remote?.pin_5 || '').replace(/\D/g, '') ||
-          deriveFiveDigitPin(resolvedPin12) ||
-          existing?.pin5 ||
-          '';
-
-        mergedMap.set(email, {
-          id: existing?.id || `acc-${String(remote?.user_id || email).slice(0, 12)}`,
-          userId: String(remote?.user_id || existing?.userId || '') || undefined,
-          roleCode: resolvedRoleCode,
-          role: normalizedRole,
-          nama: String(remote?.full_name || existing?.nama || email.split('@')[0]).trim(),
-          email,
-          password: String(remote?.plaintext_password || existing?.password || '-'),
-          pin12: resolvedPin12,
-          pin5: resolvedPin5,
-          phone: existing?.phone,
-          updatedAt: String(remote?.created_at || existing?.updatedAt || new Date().toISOString()),
-        });
-      }
-
-      const mergedList = Array.from(mergedMap.values()).sort((a, b) =>
-        (a.roleCode || a.email).localeCompare(b.roleCode || b.email)
-      );
-      saveManagedAccounts(mergedList);
-      setAccounts(mergedList);
     } catch (err: any) {
+      setAccounts([]);
       setAccountsError(
-        `Gagal menyinkronkan daftar akun dari Supabase: ${err?.message || 'Koneksi bermasalah'}.`
+        `Gagal menyinkronkan data akun dari Supabase: ${err?.message || 'Koneksi bermasalah'}`
+      );
+    }
+
+    try {
+      const recRes = await supabase.rpc('helpdesk_get_recovery_requests');
+      if (recRes.error) {
+        if (
+          recRes.error.code !== 'PGRST202' &&
+          !String(recRes.error.message || '').includes('Could not find the function')
+        ) {
+          setRecoveryError(`Gagal memuat permintaan reset PIN: ${recRes.error.message}`);
+        }
+        setRecoveryRequests([]);
+      } else {
+        const rawRec = Array.isArray((recRes.data as any)?.requests)
+          ? ((recRes.data as any).requests as any[])
+          : [];
+        setRecoveryRequests(
+          rawRec.map((r) => ({
+            id: String(r.id),
+            userId: r.user_id ? String(r.user_id) : null,
+            email: String(r.email || '-'),
+            fullName: r.full_name ? String(r.full_name) : null,
+            role: String(r.role || 'customer'),
+            roleCode: r.role_code ? String(r.role_code) : null,
+            status: String(r.status || 'pending'),
+            requestedAt: String(r.requested_at || ''),
+            resolvedAt: r.resolved_at ? String(r.resolved_at) : null,
+            resolvedBy: r.resolved_by ? String(r.resolved_by) : null,
+            notes: r.notes ? String(r.notes) : null,
+          }))
+        );
+      }
+    } catch (err: any) {
+      setRecoveryRequests([]);
+      setRecoveryError(
+        `Gagal memuat permintaan pemulihan PIN: ${err?.message || 'Koneksi bermasalah'}`
       );
     } finally {
       setAccountsLoading(false);
     }
-  }, [canManageAccounts]);
+  }, []);
 
   useEffect(() => {
     void loadAccountsFromServer();
+
+    const channel = supabase
+      .channel('helpdesk-live-db-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          void loadAccountsFromServer();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_roles' },
+        () => {
+          void loadAccountsFromServer();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'account_security' },
+        () => {
+          void loadAccountsFromServer();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pin_recovery_requests' },
+        () => {
+          void loadAccountsFromServer();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   }, [loadAccountsFromServer]);
+
+  const accountStats = useMemo(() => {
+    return {
+      totalAkun: accounts.length,
+      totalAdmin: accounts.filter(
+        (a) => a.role === 'admin' || a.role === 'admin_gudang'
+      ).length,
+      totalMasterGudang: accounts.filter(
+        (a) => a.role === 'master_admin' || a.role === 'master_gudang'
+      ).length,
+      totalCustomer: accounts.filter((a) => a.role === 'customer').length,
+      totalRecovery: recoveryRequests.length,
+    };
+  }, [accounts, recoveryRequests]);
 
   const filteredAccounts = useMemo(() => {
     const q = accountSearch.trim().toLowerCase();
@@ -235,15 +396,15 @@ export const HelpDeskCenter: React.FC = () => {
       if (!q) return true;
       return (
         acc.roleCode.toLowerCase().includes(q) ||
-        acc.nama.toLowerCase().includes(q) ||
+        acc.fullName.toLowerCase().includes(q) ||
         acc.email.toLowerCase().includes(q) ||
         getRoleDisplayName(acc.role).toLowerCase().includes(q)
       );
     });
   }, [accounts, accountRoleFilter, accountSearch]);
 
-  const handleCopySecret = async (key: string, value: string, label: string) => {
-    if (!value || value === '-') return;
+  const handleCopySecret = async (key: string, value: string | null, label: string) => {
+    if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
       setCopiedSecretKey(key);
@@ -259,9 +420,9 @@ export const HelpDeskCenter: React.FC = () => {
   const openCreateAccountModal = () => {
     setEditingAccount(null);
     setAccFormName('');
+    setAccFormPhone('');
     setAccFormEmail('');
     setAccFormRole('admin');
-    setAccFormRoleCode('');
     setAccFormPassword('');
     setAccFormShowPassword(true);
     setAccFormPin12('123456789012');
@@ -270,9 +431,10 @@ export const HelpDeskCenter: React.FC = () => {
     setAccountModalOpen(true);
   };
 
-  const openEditAccountModal = (acc: ManagedAccountRecord) => {
+  const openEditAccountModal = (acc: HelpdeskDbAccount) => {
     setEditingAccount(acc);
-    setAccFormName(acc.nama);
+    setAccFormName(acc.fullName);
+    setAccFormPhone(acc.phone || '');
     setAccFormEmail(acc.email);
     const normalizedRole =
       acc.role === 'admin_gudang'
@@ -281,20 +443,19 @@ export const HelpDeskCenter: React.FC = () => {
         ? 'master_admin'
         : acc.role;
     setAccFormRole(normalizedRole);
-    setAccFormRoleCode(acc.roleCode || '');
-    setAccFormPassword(acc.password === '-' ? '' : acc.password);
+    setAccFormPassword(acc.rawPassword || '');
     setAccFormShowPassword(true);
-    setAccFormPin12(acc.pin12 || '123456789012');
-    setAccFormSendEmail(false);
+    setAccFormPin12(acc.rawPin || '');
+    setAccFormSendEmail(true);
     setAccFormError('');
     setAccountModalOpen(true);
   };
 
   const handleSaveAccount = async () => {
     const cleanName = accFormName.trim();
+    const cleanPhone = accFormPhone.trim();
     const cleanEmail = accFormEmail.trim().toLowerCase();
     const cleanPin12 = accFormPin12.replace(/\D/g, '');
-    const cleanRoleCode = accFormRoleCode.trim().toUpperCase();
 
     if (!cleanName) {
       setAccFormError('Nama lengkap wajib diisi.');
@@ -312,65 +473,110 @@ export const HelpDeskCenter: React.FC = () => {
       setAccFormError('Jika diisi, password minimal 6 karakter.');
       return;
     }
-    if (cleanPin12 && cleanPin12.length !== 12) {
-      setAccFormError('PIN Keamanan harus tepat 12 digit angka.');
+    if (cleanPin12 && (cleanPin12.length < 5 || cleanPin12.length > 12)) {
+      setAccFormError('PIN Keamanan harus antara 5 hingga 12 digit angka (disarankan 12 digit).');
       return;
     }
 
     setAccFormSaving(true);
     setAccFormError('');
 
-    let remoteUserId = editingAccount?.userId;
-    let resolvedRoleCode = cleanRoleCode;
-    let remoteSynced = false;
+    let savedRoleCode = editingAccount?.roleCode || '-';
+    let rpcErrorMsg = '';
 
     try {
-      const { data, error } = await supabase.rpc('helpdesk_upsert_account', {
-        p_target_user_id: editingAccount?.userId || null,
-        p_email: cleanEmail,
-        p_full_name: cleanName,
-        p_role: accFormRole,
-        p_password: accFormPassword || null,
-        p_pin_12: cleanPin12 || null,
-        p_role_code: cleanRoleCode || null,
-      });
+      if (!editingAccount) {
+        let createRes = await supabase.rpc('persist_account_credentials_to_db', {
+          p_email: cleanEmail,
+          p_password: accFormPassword || null,
+          p_pin: cleanPin12 || null,
+          p_role: accFormRole,
+          p_full_name: cleanName,
+          p_phone: cleanPhone || null,
+        });
 
-      if (!error && data) {
-        const res = data as any;
-        if (res.ok) {
-          remoteSynced = true;
-          if (res.user_id) remoteUserId = String(res.user_id);
-          if (res.role_code) resolvedRoleCode = String(res.role_code);
-        } else if (res.error) {
-          setAccFormError(String(res.error));
-          setAccFormSaving(false);
-          return;
+        if (
+          createRes.error &&
+          (createRes.error.code === 'PGRST202' ||
+            String(createRes.error.message || '').includes('Could not find the function'))
+        ) {
+          createRes = await supabase.rpc('helpdesk_upsert_account', {
+            p_target_user_id: null,
+            p_email: cleanEmail,
+            p_full_name: cleanName,
+            p_role: accFormRole,
+            p_password: accFormPassword || null,
+            p_pin_12: cleanPin12 || null,
+            p_role_code: null,
+          });
+        }
+
+        if (createRes.error) {
+          rpcErrorMsg = createRes.error.message;
+        } else if ((createRes.data as any)?.ok === false) {
+          rpcErrorMsg = String((createRes.data as any).error || 'Gagal membuat akun di database.');
+        } else if ((createRes.data as any)?.role_code) {
+          savedRoleCode = String((createRes.data as any).role_code);
+        }
+      } else {
+        let updateRes = await supabase.rpc('helpdesk_update_account_credentials', {
+          p_target_user_id: editingAccount.userId,
+          p_new_email: cleanEmail,
+          p_new_password: accFormPassword || null,
+          p_new_pin: cleanPin12 || null,
+          p_new_role: accFormRole,
+        });
+
+        if (
+          updateRes.error &&
+          (updateRes.error.code === 'PGRST202' ||
+            String(updateRes.error.message || '').includes('Could not find the function'))
+        ) {
+          updateRes = await supabase.rpc('helpdesk_upsert_account', {
+            p_target_user_id: editingAccount.userId,
+            p_email: cleanEmail,
+            p_full_name: cleanName,
+            p_role: accFormRole,
+            p_password: accFormPassword || null,
+            p_pin_12: cleanPin12 || null,
+            p_role_code: null,
+          });
+        }
+
+        if (updateRes.error) {
+          rpcErrorMsg = updateRes.error.message;
+        } else if ((updateRes.data as any)?.ok === false) {
+          rpcErrorMsg = String(
+            (updateRes.data as any).error || 'Gagal memperbarui kredensial di database.'
+          );
+        } else if ((updateRes.data as any)?.role_code) {
+          savedRoleCode = String((updateRes.data as any).role_code);
         }
       }
-    } catch {
-      // Fallback to local managed registry + shared sync below
+    } catch (err: any) {
+      rpcErrorMsg = String(err?.message || err || 'Gagal terhubung ke database Supabase.');
     }
 
-    const saved = upsertManagedAccount({
-      id: editingAccount?.id,
-      userId: remoteUserId,
-      roleCode: resolvedRoleCode || undefined,
-      role: accFormRole,
-      nama: cleanName,
-      email: cleanEmail,
-      password: accFormPassword || editingAccount?.password || 'admin123',
-      pin12: cleanPin12 || editingAccount?.pin12 || '123456789012',
-      pin5: deriveFiveDigitPin(cleanPin12 || editingAccount?.pin12 || '123456789012'),
-    });
+    if (rpcErrorMsg) {
+      setAccFormError(`Gagal menyimpan ke database: ${rpcErrorMsg}`);
+      setAccFormSaving(false);
+      return;
+    }
+
+    const credentialsChanged =
+      !editingAccount ||
+      editingAccount.email.toLowerCase().trim() !== cleanEmail ||
+      (Boolean(accFormPassword) && accFormPassword !== (editingAccount.rawPassword || '')) ||
+      (Boolean(cleanPin12) && cleanPin12 !== (editingAccount.rawPin || ''));
 
     let emailStatusNote = '';
-    if (accFormSendEmail) {
+    if (accFormSendEmail && credentialsChanged) {
       try {
         const { error: mailErr } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo: `${window.location.origin}/login`,
         });
         emailStatusNote = mailErr
-          ? ' (Email reset terlewat karena batas laju SMTP; kredensial baru tetap aktif).'
+          ? ' (Email reset terlewat karena batas laju SMTP; perubahan database sudah aktif).'
           : ' & notifikasi email dikirim.';
       } catch {
         emailStatusNote = ' (Notifikasi email tertunda).';
@@ -384,23 +590,21 @@ export const HelpDeskCenter: React.FC = () => {
       event: editingAccount ? 'helpdesk_account_updated' : 'helpdesk_account_created',
       category: 'akses',
       module: 'auth',
-      action: `${editingAccount ? 'Memperbarui' : 'Membuat'} akun ${saved.roleCode} (${cleanEmail}, role ${getRoleDisplayName(accFormRole)})`,
+      action: `${editingAccount ? 'Memperbarui' : 'Membuat'} akun ${savedRoleCode} (${cleanEmail}, role ${getRoleDisplayName(accFormRole)})`,
       entityType: 'Account',
-      entityId: saved.roleCode,
+      entityId: savedRoleCode,
       outcome: 'berhasil',
       metadata: {
-        remoteSynced,
-        emailNotificationRequested: accFormSendEmail,
+        emailNotificationRequested: accFormSendEmail && credentialsChanged,
       },
     });
 
-    await pushSharedWorkshopStateToSupabase();
-    setAccounts(getManagedAccounts());
+    await loadAccountsFromServer();
     setAccFormSaving(false);
     setAccountModalOpen(false);
     notify(
-      `Akun ${saved.roleCode} (${cleanEmail}) ${
-        editingAccount ? 'diperbarui' : 'ditambahkan'
+      `Akun ${savedRoleCode} (${cleanEmail}) ${
+        editingAccount ? 'diperbarui di database' : 'berhasil ditambahkan ke database'
       }${emailStatusNote}`
     );
   };
@@ -414,25 +618,30 @@ export const HelpDeskCenter: React.FC = () => {
 
     setDeleteSaving(true);
     setDeleteError('');
-    let remoteDeleted = false;
 
     try {
       const { data, error } = await supabase.rpc('helpdesk_delete_account', {
-        p_target_user_id: deleteTarget.userId || null,
+        p_target_user_id: deleteTarget.userId,
         p_target_email: deleteTarget.email,
       });
-      if (!error && (data as any)?.ok) {
-        remoteDeleted = true;
-      }
-    } catch {
-      // Safe fallback to local removal
-    }
 
-    const next = removeManagedAccount({
-      id: deleteTarget.id,
-      userId: deleteTarget.userId,
-      email: deleteTarget.email,
-    });
+      if (error) {
+        setDeleteError(`Gagal menghapus akun dari database: ${error.message}`);
+        setDeleteSaving(false);
+        return;
+      }
+      if ((data as any)?.ok === false) {
+        setDeleteError(String((data as any).error || 'Gagal menghapus akun dari database.'));
+        setDeleteSaving(false);
+        return;
+      }
+    } catch (err: any) {
+      setDeleteError(
+        `Gagal terhubung ke server Supabase: ${err?.message || 'Koneksi bermasalah'}`
+      );
+      setDeleteSaving(false);
+      return;
+    }
 
     recordAuditEvent({
       actorId: user?.roleCode || 'HD-001',
@@ -441,20 +650,18 @@ export const HelpDeskCenter: React.FC = () => {
       event: 'helpdesk_account_deleted',
       category: 'akses',
       module: 'auth',
-      action: `Menghapus akun ${deleteTarget.roleCode} (${deleteTarget.email})`,
+      action: `Menghapus permanen akun ${deleteTarget.roleCode} (${deleteTarget.email}) dari database`,
       entityType: 'Account',
       entityId: deleteTarget.roleCode,
       outcome: 'berhasil',
-      metadata: { remoteDeleted },
     });
 
-    await pushSharedWorkshopStateToSupabase();
-    setAccounts(next);
-    setDeleteSaving(false);
     const removedCode = deleteTarget.roleCode;
     const removedEmail = deleteTarget.email;
+    await loadAccountsFromServer();
+    setDeleteSaving(false);
     setDeleteTarget(null);
-    notify(`Akun ${removedCode} (${removedEmail}) telah dihapus.`);
+    notify(`Akun ${removedCode} (${removedEmail}) telah dihapus permanen dari database.`);
   };
 
   // -------------------------------------------------------------
@@ -908,7 +1115,21 @@ export const HelpDeskCenter: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <div className="flex flex-col items-start sm:items-end text-[11px] text-[#646B7C] mr-1">
+            <span>Status Sumber: Supabase PostgreSQL (Live)</span>
+            <span className="font-mono">
+              {lastSyncedAt ? `Terakhir disinkronkan: ${lastSyncedAt}` : 'Menyinkronkan...'}
+            </span>
+          </div>
+          <ActionButton
+            intent="neutral"
+            disabled={accountsLoading}
+            onClick={() => void loadAccountsFromServer()}
+            className="w-full sm:w-auto justify-center"
+          >
+            {accountsLoading ? 'Menyinkronkan...' : 'Sinkronisasi Database (Refresh)'}
+          </ActionButton>
           {canManageAccounts && (
             <ActionButton
               intent="neutral"
@@ -1015,10 +1236,85 @@ export const HelpDeskCenter: React.FC = () => {
       </div>
 
       {/* ========================================================= */}
-      {/* 1. OVERVIEW TAB */}
+      {/* 1. OVERVIEW TAB (100% REAL DATABASE METRICS) */}
       {/* ========================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {/* Real Database Accounts & Recovery Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setAccountRoleFilter('Semua');
+                if (canManageAccounts) setActiveTab('accounts');
+              }}
+              className="p-5 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm hover:border-[#1E2230] transition-all cursor-pointer text-left"
+            >
+              <span className="text-xs text-[#646B7C] block font-medium mb-1">Total Akun (DB)</span>
+              <span className="text-[32px] font-condensed font-bold text-[#1E2230]">
+                {accountsLoading && accounts.length === 0 ? '...' : accountStats.totalAkun}
+              </span>
+              <span className="text-xs text-[#646B7C] block mt-1">Akun aktif di Supabase</span>
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setAccountRoleFilter('admin');
+                if (canManageAccounts) setActiveTab('accounts');
+              }}
+              className="p-5 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm hover:border-[#1B8354] transition-all cursor-pointer text-left"
+            >
+              <span className="text-xs text-[#1B8354] block font-semibold mb-1">Total Admin (AD)</span>
+              <span className="text-[32px] font-condensed font-bold text-[#1B8354]">
+                {accountsLoading && accounts.length === 0 ? '...' : accountStats.totalAdmin}
+              </span>
+              <span className="text-xs text-[#646B7C] block mt-1">Prefix ID AD-xxx</span>
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setAccountRoleFilter('master_admin');
+                if (canManageAccounts) setActiveTab('accounts');
+              }}
+              className="p-5 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm hover:border-[#1D6FC4] transition-all cursor-pointer text-left"
+            >
+              <span className="text-xs text-[#1D6FC4] block font-semibold mb-1">Master Gudang (MG)</span>
+              <span className="text-[32px] font-condensed font-bold text-[#1D6FC4]">
+                {accountsLoading && accounts.length === 0 ? '...' : accountStats.totalMasterGudang}
+              </span>
+              <span className="text-xs text-[#646B7C] block mt-1">Prefix ID MG-xxx</span>
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setAccountRoleFilter('customer');
+                if (canManageAccounts) setActiveTab('accounts');
+              }}
+              className="p-5 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm hover:border-[#475569] transition-all cursor-pointer text-left"
+            >
+              <span className="text-xs text-[#475569] block font-semibold mb-1">Customer (CS)</span>
+              <span className="text-[32px] font-condensed font-bold text-[#1E2230]">
+                {accountsLoading && accounts.length === 0 ? '...' : accountStats.totalCustomer}
+              </span>
+              <span className="text-xs text-[#646B7C] block mt-1">Prefix ID CS-xxx</span>
+            </div>
+
+            <div className="p-5 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm text-left">
+              <span className="text-xs text-[#D97706] block font-semibold mb-1">Permintaan Reset PIN</span>
+              <span className="text-[32px] font-condensed font-bold text-[#D97706]">
+                {accountsLoading && accounts.length === 0 ? '...' : accountStats.totalRecovery}
+              </span>
+              <span className="text-xs text-[#646B7C] block mt-1">Antrean pemulihan DB</span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div
               role="button"
@@ -1166,6 +1462,77 @@ export const HelpDeskCenter: React.FC = () => {
               </p>
             </div>
           </DataCard>
+
+          {/* Real Database PIN Recovery Requests */}
+          <DataCard
+            title="Permintaan Bantuan & Reset PIN (Live Database)"
+            actions={
+              <ActionButton
+                intent="neutral"
+                disabled={accountsLoading}
+                onClick={() => void loadAccountsFromServer()}
+              >
+                {accountsLoading ? 'Memuat...' : 'Muat Ulang Data'}
+              </ActionButton>
+            }
+          >
+            {recoveryError ? (
+              <div className="p-4 rounded-[12px] bg-[#FDE3E9] text-[#B4234A] text-xs flex flex-wrap items-center justify-between gap-3">
+                <span>{recoveryError}</span>
+                <ActionButton
+                  intent="neutral"
+                  onClick={() => void loadAccountsFromServer()}
+                  className="!h-8 !text-xs"
+                >
+                  Coba Lagi
+                </ActionButton>
+              </div>
+            ) : recoveryRequests.length === 0 ? (
+              <div className="py-8 px-4 text-center rounded-[12px] bg-[#F6F7FA] border border-[#EEF0F4] space-y-3">
+                <p className="text-sm text-[#646B7C]">
+                  Belum ada permintaan bantuan / reset PIN
+                </p>
+                <ActionButton
+                  intent="neutral"
+                  disabled={accountsLoading}
+                  onClick={() => void loadAccountsFromServer()}
+                >
+                  Muat Ulang Data
+                </ActionButton>
+              </div>
+            ) : (
+              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                <table className="w-full text-left border-collapse text-xs bg-white min-w-[640px]">
+                  <thead>
+                    <tr className="bg-[#F6F7FA] text-[#646B7C] border-b border-[#EEF0F4]">
+                      <th className="py-2.5 px-3 font-semibold uppercase">ID / Role</th>
+                      <th className="py-2.5 px-3 font-semibold uppercase">Email</th>
+                      <th className="py-2.5 px-3 font-semibold uppercase">Status</th>
+                      <th className="py-2.5 px-3 font-semibold uppercase">Waktu Permintaan</th>
+                      <th className="py-2.5 px-3 font-semibold uppercase">Catatan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recoveryRequests.map((req) => (
+                      <tr key={req.id} className="border-b border-[#EEF0F4] last:border-b-0">
+                        <td className="py-2.5 px-3 font-mono font-semibold text-[#1E2230]">
+                          {req.roleCode || '-'} ({getRoleDisplayName(req.role)})
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-[#475569]">{req.email}</td>
+                        <td className="py-2.5 px-3">
+                          <StatusChip status={req.status} />
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-[#646B7C]">
+                          {req.requestedAt ? new Date(req.requestedAt).toLocaleString('id-ID') : '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-[#646B7C]">{req.notes || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </DataCard>
         </div>
       )}
 
@@ -1174,36 +1541,66 @@ export const HelpDeskCenter: React.FC = () => {
       {/* ========================================================= */}
       {activeTab === 'accounts' && canManageAccounts && (
         <div className="space-y-5">
+          {/* Live Stats Row */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="p-3.5 rounded-[12px] bg-white border border-[#EEF0F4]">
+              <span className="text-[11px] text-[#646B7C] block">Total Akun DB</span>
+              <span className="text-xl font-bold text-[#1E2230] tabular-nums">
+                {accountStats.totalAkun}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-[12px] bg-white border border-[#EEF0F4]">
+              <span className="text-[11px] text-[#1B8354] font-semibold block">Admin (AD)</span>
+              <span className="text-xl font-bold text-[#1B8354] tabular-nums">
+                {accountStats.totalAdmin}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-[12px] bg-white border border-[#EEF0F4]">
+              <span className="text-[11px] text-[#1D6FC4] font-semibold block">Master Gudang (MG)</span>
+              <span className="text-xl font-bold text-[#1D6FC4] tabular-nums">
+                {accountStats.totalMasterGudang}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-[12px] bg-white border border-[#EEF0F4]">
+              <span className="text-[11px] text-[#475569] font-semibold block">Customer (CS)</span>
+              <span className="text-xl font-bold text-[#1E2230] tabular-nums">
+                {accountStats.totalCustomer}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-[12px] bg-white border border-[#EEF0F4]">
+              <span className="text-[11px] text-[#D97706] font-semibold block">Reset PIN</span>
+              <span className="text-xl font-bold text-[#D97706] tabular-nums">
+                {accountStats.totalRecovery}
+              </span>
+            </div>
+          </div>
+
           <DataCard
-            title="Manajemen Akun & Akses Pengguna"
+            title="Manajemen Akun & Akses Pengguna (Supabase Real-Time)"
             actions={
               <div className="flex flex-wrap items-center gap-2">
+                {lastSyncedAt && (
+                  <span className="text-[11px] font-mono text-[#646B7C] mr-1">
+                    Sync: {lastSyncedAt}
+                  </span>
+                )}
                 <ActionButton
                   intent="neutral"
                   disabled={accountsLoading}
                   onClick={() => void loadAccountsFromServer()}
                 >
-                  {accountsLoading ? 'Menyinkronkan...' : 'Segarkan Data'}
+                  {accountsLoading ? 'Menyinkronkan...' : 'Sinkronisasi Database (Refresh)'}
                 </ActionButton>
                 <ActionButton intent="start" onClick={openCreateAccountModal}>
-                  + Tambah Akun
+                  + Tambah Akun Baru
                 </ActionButton>
               </div>
             }
           >
             <div className="space-y-4">
               <p className="text-xs text-[#646B7C] leading-relaxed">
-                Helpdesk (<samp className="font-mono font-semibold text-[#1E2230]">HD-001</samp>) dapat melihat kredensial login (Password, PIN 12 digit, serta PIN 5 digit otomatis hasil kebalikan 5 digit akhir PIN 12 digit, contoh <samp className="font-mono font-semibold text-[#1E2230]">123456789012</samp> menjadi <samp className="font-mono font-semibold text-[#1E2230]">21098</samp>), mengubah role, dan mengelola seluruh akun pengguna.
+                Seluruh baris pada tabel ini dibaca langsung dari tabel <samp className="font-mono text-[#1E2230]">auth.users</samp>, <samp className="font-mono text-[#1E2230]">public.profiles</samp>, <samp className="font-mono text-[#1E2230]">public.user_roles</samp>, dan <samp className="font-mono text-[#1E2230]">public.account_security</samp> di Supabase tanpa data tiruan.
               </p>
-
-              {accountsError && (
-                <div
-                  role="status"
-                  className="p-3 rounded-[12px] bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E]"
-                >
-                  {accountsError}
-                </div>
-              )}
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1242,33 +1639,64 @@ export const HelpDeskCenter: React.FC = () => {
                 />
               </div>
 
-              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[14px]">
-                <table className="w-full text-left border-collapse text-[13px] bg-white min-w-[880px]">
-                  <thead>
-                    <tr className="bg-[#F6F7FA] text-[#646B7C] border-b border-[#EEF0F4]">
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">ID & Role</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Nama</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Email</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Password</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 12 Digit</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 5 Digit</th>
-                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider text-right">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAccounts.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-8 text-center text-[#646B7C]">
-                          Tidak ada akun yang sesuai filter.
-                        </td>
+              {accountsLoading && accounts.length === 0 ? (
+                <div className="py-12 px-4 text-center rounded-[14px] border border-[#EEF0F4] bg-[#FAFBFD] space-y-3">
+                  <div className="w-8 h-8 mx-auto border-2 border-[#D9DDE6] border-t-[#1E2230] rounded-full animate-spin" />
+                  <p className="text-sm text-[#646B7C]">
+                    Memuat data akun langsung dari database Supabase...
+                  </p>
+                </div>
+              ) : accountsError ? (
+                <div
+                  role="alert"
+                  className="p-5 rounded-[14px] bg-[#FDE3E9] border border-[rgba(242,70,111,0.3)] text-[#B4234A] text-xs space-y-3"
+                >
+                  <p className="font-semibold">Gagal memuat daftar akun dari Supabase:</p>
+                  <p className="font-mono break-all">{accountsError}</p>
+                  <ActionButton
+                    intent="neutral"
+                    disabled={accountsLoading}
+                    onClick={() => void loadAccountsFromServer()}
+                  >
+                    Muat Ulang Data
+                  </ActionButton>
+                </div>
+              ) : filteredAccounts.length === 0 ? (
+                <div className="py-10 px-4 text-center rounded-[14px] border border-[#EEF0F4] bg-[#F6F7FA] space-y-3">
+                  <p className="text-sm text-[#646B7C]">
+                    {accounts.length === 0
+                      ? 'Belum ada data akun di database'
+                      : 'Tidak ada akun di database yang sesuai filter pencarian.'}
+                  </p>
+                  <ActionButton
+                    intent="neutral"
+                    disabled={accountsLoading}
+                    onClick={() => void loadAccountsFromServer()}
+                  >
+                    Muat Ulang Data
+                  </ActionButton>
+                </div>
+              ) : (
+                <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[14px]">
+                  <table className="w-full text-left border-collapse text-[13px] bg-white min-w-[920px]">
+                    <thead>
+                      <tr className="bg-[#F6F7FA] text-[#646B7C] border-b border-[#EEF0F4]">
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">ID & Role</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Nama</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Email</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Password (DB)</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 12 Digit</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 5 Digit</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider text-right">Aksi</th>
                       </tr>
-                    ) : (
-                      filteredAccounts.map((acc) => {
-                        const rowKey = acc.email;
+                    </thead>
+                    <tbody>
+                      {filteredAccounts.map((acc) => {
+                        const rowKey = acc.userId;
                         const isPwdVisible = Boolean(revealedPasswords[rowKey]);
                         const isPinVisible = Boolean(revealedPins[rowKey]);
                         const derivedPin5 =
-                          acc.pin5 || deriveFiveDigitPin(acc.pin12 || '') || '-';
+                          acc.rawPin5 || (acc.rawPin ? deriveFiveDigitPin(acc.rawPin) : null);
 
                         const roleBadgeCls =
                           acc.role === 'master_admin' || acc.role === 'master_gudang'
@@ -1299,121 +1727,133 @@ export const HelpDeskCenter: React.FC = () => {
                               </div>
                             </td>
                             <td className="py-3 px-3.5 font-medium text-[#1E2230]">
-                              {acc.nama}
+                              <div>{acc.fullName}</div>
+                              {acc.phone && (
+                                <div className="text-[11px] font-mono text-[#646B7C]">
+                                  {acc.phone}
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 px-3.5 font-mono text-xs text-[#475569]">
-                              {acc.email}
+                              <div>{acc.email}</div>
+                              <span className="inline-block mt-0.5 text-[10px] text-[#646B7C]">
+                                {acc.emailVerifiedAt ? 'Email Terkonfirmasi' : 'Belum Konfirmasi'}
+                              </span>
                             </td>
                             <td className="py-3 px-3.5 whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <span className="font-mono text-xs text-[#1E2230]">
-                                  {isPwdVisible ? acc.password || '-' : '••••••••'}
+                              {acc.rawPassword ? (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className="font-mono text-xs text-[#1E2230]">
+                                    {isPwdVisible ? acc.rawPassword : '••••••••'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
+                                    title={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
+                                    onClick={() =>
+                                      setRevealedPasswords((prev) => ({
+                                        ...prev,
+                                        [rowKey]: !prev[rowKey],
+                                      }))
+                                    }
+                                    className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                      {isPwdVisible ? (
+                                        <>
+                                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                          <path d="M1 1l22 22" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                          <circle cx="12" cy="12" r="3" />
+                                        </>
+                                      )}
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Salin password"
+                                    title="Salin password"
+                                    onClick={() =>
+                                      void handleCopySecret(
+                                        `pwd-${rowKey}`,
+                                        acc.rawPassword,
+                                        'Password'
+                                      )
+                                    }
+                                    className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
+                                  >
+                                    {copiedSecretKey === `pwd-${rowKey}` ? 'Disalin' : 'Salin'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E] text-[11px] font-medium">
+                                  Belum diatur di DB (Klik Ubah untuk set)
                                 </span>
-                                <button
-                                  type="button"
-                                  aria-label={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
-                                  title={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
-                                  onClick={() =>
-                                    setRevealedPasswords((prev) => ({
-                                      ...prev,
-                                      [rowKey]: !prev[rowKey],
-                                    }))
-                                  }
-                                  className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    {isPwdVisible ? (
-                                      <>
-                                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                                        <path d="M1 1l22 22" />
-                                      </>
-                                    ) : (
-                                      <>
-                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                        <circle cx="12" cy="12" r="3" />
-                                      </>
-                                    )}
-                                  </svg>
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label="Salin password"
-                                  title="Salin password"
-                                  onClick={() =>
-                                    void handleCopySecret(
-                                      `pwd-${rowKey}`,
-                                      acc.password,
-                                      'Password'
-                                    )
-                                  }
-                                  className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
-                                >
-                                  {copiedSecretKey === `pwd-${rowKey}` ? 'Disalin' : 'Salin'}
-                                </button>
-                              </div>
+                              )}
                             </td>
                             <td className="py-3 px-3.5 whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <span className="font-mono text-xs text-[#1E2230]">
-                                  {acc.pin12
-                                    ? isPinVisible
-                                      ? acc.pin12
-                                      : '••••••••••••'
-                                    : '-'}
+                              {acc.rawPin ? (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className="font-mono text-xs text-[#1E2230]">
+                                    {isPinVisible ? acc.rawPin : '••••••••••••'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
+                                    title={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
+                                    onClick={() =>
+                                      setRevealedPins((prev) => ({
+                                        ...prev,
+                                        [rowKey]: !prev[rowKey],
+                                      }))
+                                    }
+                                    className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                      {isPinVisible ? (
+                                        <>
+                                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                          <path d="M1 1l22 22" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                          <circle cx="12" cy="12" r="3" />
+                                        </>
+                                      )}
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Salin PIN 12 digit"
+                                    title="Salin PIN 12 digit"
+                                    onClick={() =>
+                                      void handleCopySecret(
+                                        `pin12-${rowKey}`,
+                                        acc.rawPin,
+                                        'PIN 12 digit'
+                                      )
+                                    }
+                                    className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
+                                  >
+                                    {copiedSecretKey === `pin12-${rowKey}` ? 'Disalin' : 'Salin'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E] text-[11px] font-medium">
+                                  Belum diatur di DB (Klik Ubah untuk set)
                                 </span>
-                                {acc.pin12 && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      aria-label={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
-                                      title={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
-                                      onClick={() =>
-                                        setRevealedPins((prev) => ({
-                                          ...prev,
-                                          [rowKey]: !prev[rowKey],
-                                        }))
-                                      }
-                                      className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
-                                    >
-                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        {isPinVisible ? (
-                                          <>
-                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                                            <path d="M1 1l22 22" />
-                                          </>
-                                        ) : (
-                                          <>
-                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                            <circle cx="12" cy="12" r="3" />
-                                          </>
-                                        )}
-                                      </svg>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      aria-label="Salin PIN 12 digit"
-                                      title="Salin PIN 12 digit"
-                                      onClick={() =>
-                                        void handleCopySecret(
-                                          `pin12-${rowKey}`,
-                                          acc.pin12,
-                                          'PIN 12 digit'
-                                        )
-                                      }
-                                      className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
-                                    >
-                                      {copiedSecretKey === `pin12-${rowKey}` ? 'Disalin' : 'Salin'}
-                                    </button>
-                                  </>
-                                )}
-                              </div>
+                              )}
                             </td>
                             <td className="py-3 px-3.5 whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-xs px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E]">
-                                  {derivedPin5}
-                                </span>
-                                {derivedPin5 !== '-' && (
+                              {derivedPin5 ? (
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E]">
+                                    {derivedPin5}
+                                  </span>
                                   <button
                                     type="button"
                                     aria-label="Salin PIN 5 digit"
@@ -1429,8 +1869,10 @@ export const HelpDeskCenter: React.FC = () => {
                                   >
                                     {copiedSecretKey === `pin5-${rowKey}` ? 'Disalin' : 'Salin'}
                                   </button>
-                                )}
-                              </div>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-[#646B7C]">Belum diatur</span>
+                              )}
                             </td>
                             <td className="py-3 px-3.5 whitespace-nowrap text-right">
                               <div className="inline-flex items-center gap-1.5">
@@ -1440,7 +1882,7 @@ export const HelpDeskCenter: React.FC = () => {
                                   onClick={() => openEditAccountModal(acc)}
                                   className="!h-7 !px-2.5 !text-[12px]"
                                 >
-                                  Edit
+                                  Ubah Kredensial
                                 </ActionButton>
                                 <ActionButton
                                   type="button"
@@ -1460,11 +1902,11 @@ export const HelpDeskCenter: React.FC = () => {
                             </td>
                           </tr>
                         );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </DataCard>
         </div>
@@ -1825,40 +2267,51 @@ export const HelpDeskCenter: React.FC = () => {
                 </ActionButton>
               </div>
 
-              {/* Sample Shortcuts */}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[#646B7C]">
-                <span>Contoh Pintasan:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDiagnosticQuery('WO-0002');
-                    executeDiagnostics('WO-0002');
-                  }}
-                  className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
-                >
-                  WO-0002
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDiagnosticQuery('PRT-001');
-                    executeDiagnostics('PRT-001');
-                  }}
-                  className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
-                >
-                  PRT-001
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDiagnosticQuery('PJ-0001');
-                    executeDiagnostics('PJ-0001');
-                  }}
-                  className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
-                >
-                  PJ-0001
-                </button>
-              </div>
+              {/* Live Entity Shortcuts (only rendered when real records exist in database) */}
+              {(workOrders.length > 0 || parts.length > 0 || sales.length > 0) && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[#646B7C]">
+                  <span>Rekaman Aktif:</span>
+                  {workOrders.slice(0, 1).map((wo) => (
+                    <button
+                      key={wo.id}
+                      type="button"
+                      onClick={() => {
+                        setDiagnosticQuery(wo.id);
+                        executeDiagnostics(wo.id);
+                      }}
+                      className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
+                    >
+                      {wo.id}
+                    </button>
+                  ))}
+                  {parts.slice(0, 1).map((p) => (
+                    <button
+                      key={p.kode}
+                      type="button"
+                      onClick={() => {
+                        setDiagnosticQuery(p.kode);
+                        executeDiagnostics(p.kode);
+                      }}
+                      className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
+                    >
+                      {p.kode}
+                    </button>
+                  ))}
+                  {sales.slice(0, 1).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setDiagnosticQuery(s.id);
+                        executeDiagnostics(s.id);
+                      }}
+                      className="px-2 py-1 rounded bg-[#EEF0F4] hover:bg-[#D9DDE6] text-[#1E2230] font-mono"
+                    >
+                      {s.id}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </DataCard>
 
@@ -2722,7 +3175,7 @@ export const HelpDeskCenter: React.FC = () => {
               <select
                 id="acc-form-role"
                 value={accFormRole}
-                onChange={(e) => setAccFormRole(e.target.value as ManagedAccountRole)}
+                onChange={(e) => setAccFormRole(e.target.value as HelpdeskRoleType)}
                 className="admin-input text-xs"
               >
                 <option value="admin">Admin (AD)</option>
@@ -2733,26 +3186,42 @@ export const HelpDeskCenter: React.FC = () => {
               </select>
             </FormField>
 
-            <FormField id="acc-form-code" label="Kode ID (Otomatis jika kosong)">
+            <FormField id="acc-form-code" label="Kode ID Role (Server DB)">
               <input
                 id="acc-form-code"
-                value={accFormRoleCode}
-                onChange={(e) => setAccFormRoleCode(e.target.value.toUpperCase())}
-                placeholder={getNextRoleCodeForAccounts(accFormRole, accounts)}
-                className="admin-input text-xs font-mono"
+                readOnly
+                disabled
+                value={
+                  editingAccount
+                    ? editingAccount.roleCode
+                    : 'Ditetapkan otomatis oleh database'
+                }
+                className="admin-input text-xs font-mono bg-[#F6F7FA] text-[#646B7C] cursor-not-allowed"
               />
             </FormField>
           </div>
 
-          <FormField id="acc-form-name" label="Nama Lengkap">
-            <input
-              id="acc-form-name"
-              value={accFormName}
-              onChange={(e) => setAccFormName(e.target.value)}
-              placeholder="Contoh: Admin Shift 2"
-              className="admin-input text-xs"
-            />
-          </FormField>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField id="acc-form-name" label="Nama Lengkap">
+              <input
+                id="acc-form-name"
+                value={accFormName}
+                onChange={(e) => setAccFormName(e.target.value)}
+                placeholder="Nama pengguna"
+                className="admin-input text-xs"
+              />
+            </FormField>
+
+            <FormField id="acc-form-phone" label="Nomor HP (Opsional)">
+              <input
+                id="acc-form-phone"
+                value={accFormPhone}
+                onChange={(e) => setAccFormPhone(e.target.value.replace(/[^\d+]/g, ''))}
+                placeholder="08xxxxxxxxxx"
+                className="admin-input text-xs font-mono"
+              />
+            </FormField>
+          </div>
 
           <FormField id="acc-form-email" label="Alamat Email">
             <input
@@ -2878,7 +3347,7 @@ export const HelpDeskCenter: React.FC = () => {
             )}
             <p className="leading-relaxed">
               Apakah Anda yakin ingin menghapus akun{' '}
-              <strong>{deleteTarget.nama}</strong> ({deleteTarget.email}) dengan ID role{' '}
+              <strong>{deleteTarget.fullName}</strong> ({deleteTarget.email}) dengan ID role{' '}
               <samp className="font-mono font-bold">{deleteTarget.roleCode}</samp>?
             </p>
             <p className="text-[#646B7C]">

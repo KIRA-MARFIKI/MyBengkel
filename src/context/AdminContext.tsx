@@ -161,6 +161,26 @@ export const generateOrderCode = (
   return `${datePart}/${String(maxSeq + 1).padStart(5, '0')}/${suffix}`;
 };
 
+const DUMMY_TICKET_IDS = new Set(['TKT-001', 'TKT-002', 'TKT-003', 'TKT-004']);
+const DUMMY_CORRECTION_IDS = new Set(['COR-001', 'COR-002']);
+const DUMMY_KB_IDS = new Set(['KB-001', 'KB-002', 'KB-003', 'KB-004', 'KB-005', 'KB-006']);
+
+const stripLegacyDummyHelpdeskItems = (
+  tickets: HelpDeskTicket[],
+  corrections: CorrectionRequest[],
+  kb: KnowledgeBaseArticle[]
+) => ({
+  tickets: tickets.filter(
+    (t) => !(DUMMY_TICKET_IDS.has(t.id) && String(t.createdAt || '').startsWith('2026-11-13'))
+  ),
+  correctionRequests: corrections.filter(
+    (c) => !(DUMMY_CORRECTION_IDS.has(c.id) && String(c.requestedAt || '').startsWith('2026-11-13'))
+  ),
+  knowledgeBase: kb.filter(
+    (k) => !(DUMMY_KB_IDS.has(k.id) && String(k.updatedAt || '') === '2026-11-13 08.00')
+  ),
+});
+
 const VALID_BOOKING_STATUSES = new Set<string>(['menunggu', 'datang', 'batal']);
 const VALID_SF_STATUSES = new Set<string>(['menunggu_persetujuan', 'disetujui', 'batal']);
 const VALID_PR_STATES = new Set<string>([
@@ -283,6 +303,14 @@ const loadInitialStore = (): PersistedAdminStore => {
 
     const historyList = parsed.partHistory ?? parsed.partChanges ?? defaults.partHistory;
 
+    const cleanedHelpdesk = stripLegacyDummyHelpdeskItems(
+      Array.isArray(parsed.tickets) ? parsed.tickets : defaults.tickets,
+      Array.isArray(parsed.correctionRequests)
+        ? parsed.correctionRequests
+        : defaults.correctionRequests,
+      Array.isArray(parsed.knowledgeBase) ? parsed.knowledgeBase : defaults.knowledgeBase
+    );
+
     return {
       mechanics: normalizedMechanics,
       customers: parsed.customers ?? defaults.customers,
@@ -297,9 +325,9 @@ const loadInitialStore = (): PersistedAdminStore => {
       purchaseRequests: normalizedPRs,
       sales: parsed.sales ?? defaults.sales,
       attendance: parsed.attendance ?? defaults.attendance,
-      tickets: Array.isArray(parsed.tickets) && parsed.tickets.length > 0 ? parsed.tickets : defaults.tickets,
-      correctionRequests: Array.isArray(parsed.correctionRequests) ? parsed.correctionRequests : defaults.correctionRequests,
-      knowledgeBase: Array.isArray(parsed.knowledgeBase) ? parsed.knowledgeBase : defaults.knowledgeBase,
+      tickets: cleanedHelpdesk.tickets,
+      correctionRequests: cleanedHelpdesk.correctionRequests,
+      knowledgeBase: cleanedHelpdesk.knowledgeBase,
       manualEntries: parsed.manualEntries ?? defaults.manualEntries,
       stockOpnames: Array.isArray(parsed.stockOpnames) ? parsed.stockOpnames : defaults.stockOpnames,
       auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : defaults.auditLogs,
@@ -379,6 +407,12 @@ const normalizeRemoteStore = (
   const baseBookings = Array.isArray(raw.bookings) ? raw.bookings : defaults.bookings;
   const mergedBookings = mergeRemoteBookings(baseBookings, tableBookingRows);
 
+  const cleanedHelpdesk = stripLegacyDummyHelpdeskItems(
+    Array.isArray(raw.tickets) ? raw.tickets : defaults.tickets,
+    Array.isArray(raw.correctionRequests) ? raw.correctionRequests : defaults.correctionRequests,
+    Array.isArray(raw.knowledgeBase) ? raw.knowledgeBase : defaults.knowledgeBase
+  );
+
   return {
     mechanics: Array.isArray(raw.mechanics) ? raw.mechanics : defaults.mechanics,
     customers: Array.isArray(raw.customers) ? raw.customers : defaults.customers,
@@ -411,11 +445,9 @@ const normalizeRemoteStore = (
       : defaults.purchaseRequests,
     sales: Array.isArray(raw.sales) ? raw.sales : defaults.sales,
     attendance: Array.isArray(raw.attendance) ? raw.attendance : defaults.attendance,
-    tickets: Array.isArray(raw.tickets) ? raw.tickets : defaults.tickets,
-    correctionRequests: Array.isArray(raw.correctionRequests)
-      ? raw.correctionRequests
-      : defaults.correctionRequests,
-    knowledgeBase: Array.isArray(raw.knowledgeBase) ? raw.knowledgeBase : defaults.knowledgeBase,
+    tickets: cleanedHelpdesk.tickets,
+    correctionRequests: cleanedHelpdesk.correctionRequests,
+    knowledgeBase: cleanedHelpdesk.knowledgeBase,
     manualEntries: Array.isArray(raw.manualEntries) ? raw.manualEntries : defaults.manualEntries,
     stockOpnames: Array.isArray(raw.stockOpnames) ? raw.stockOpnames : defaults.stockOpnames,
     auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : defaults.auditLogs,
@@ -2071,7 +2103,7 @@ export function createServiceFromDraft(input: CreateServiceFromDraftInput): Serv
   const normalizedPlate = input.vehicle.plat.trim().replace(/\s+/g, ' ');
   const signature =
     input.submissionId ||
-    `${normalizedPlate}|${input.customer.nama.trim()}|${input.customer.ktp.trim()}|${input.vehicle.rangka.trim()}|${input.vehicle.mesin.trim()}|${input.temuan.trim()}`;
+    `${normalizedPlate}|${input.customer.nama.trim()}|${input.vehicle.rangka.trim()}|${input.vehicle.mesin.trim()}|${input.temuan.trim()}`;
 
   if (signature && signature === lastDraftSubmissionSignature && lastDraftSubmissionId) {
     const existing = state.serviceForms.find((sf) => sf.id === lastDraftSubmissionId);
@@ -2090,7 +2122,7 @@ export function createServiceFromDraft(input: CreateServiceFromDraftInput): Serv
       nama: input.customer.nama.trim(),
       jenisKonsumen: input.customer.jenisKonsumen,
       hp: input.customer.hp.trim(),
-      ktp: input.customer.ktp.trim(),
+      ktp: (input.customer.ktp || '').trim(),
       alamat: input.customer.alamat.trim(),
     },
     vehicle: {

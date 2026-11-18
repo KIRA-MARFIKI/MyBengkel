@@ -26,6 +26,7 @@ export interface ManagedAccountRecord {
 export function deriveFiveDigitPin(pin12: string): string {
   const digits = (pin12 || '').replace(/\D/g, '');
   if (!digits) return '';
+  if (digits.length < 5) return digits;
   return digits.slice(-5).split('').reverse().join('');
 }
 
@@ -278,8 +279,19 @@ export function upsertManagedAccount(
     (input.roleCode && input.roleCode.trim()) ||
     (existingCodeMatchesRole ? existing!.roleCode : getNextRoleCodeForAccounts(input.role, current));
 
-  const nextPin12 = (input.pin12 !== undefined ? input.pin12 : existing?.pin12 || '123456789012').replace(/\D/g, '');
-  const nextPin5 = deriveFiveDigitPin(nextPin12) || input.pin5 || existing?.pin5 || '21098';
+  const nextPin12 = (
+    input.pin12 !== undefined ? input.pin12 : existing?.pin12 || '123456789012'
+  ).replace(/\D/g, '');
+  const computedPin5 = nextPin12
+    ? nextPin12.length >= 5
+      ? deriveFiveDigitPin(nextPin12)
+      : nextPin12
+    : '';
+  const nextPin5 = computedPin5 || input.pin5 || existing?.pin5 || '21098';
+  const resolvedPassword =
+    input.password && input.password.trim() !== '' && input.password !== '-'
+      ? input.password
+      : existing?.password || 'admin123';
 
   const record: ManagedAccountRecord = {
     id: existing?.id || input.id || `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -288,7 +300,7 @@ export function upsertManagedAccount(
     role: input.role,
     nama: (input.nama ?? existing?.nama ?? cleanEmail.split('@')[0]).trim(),
     email: cleanEmail,
-    password: input.password !== undefined ? input.password : existing?.password || 'admin123',
+    password: resolvedPassword,
     pin12: nextPin12,
     pin5: nextPin5,
     phone: input.phone ?? existing?.phone,

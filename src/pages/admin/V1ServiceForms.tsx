@@ -38,7 +38,6 @@ type DraftFieldKey =
   | 'customerName'
   | 'customerType'
   | 'customerPhone'
-  | 'customerKtp'
   | 'customerAddress'
   | 'frameNumber'
   | 'engineNumber'
@@ -51,7 +50,6 @@ const FIELD_IDS: Record<DraftFieldKey, string> = {
   customerName: 'sf-customer-name',
   customerType: 'sf-customer-type',
   customerPhone: 'sf-customer-phone',
-  customerKtp: 'sf-customer-ktp',
   customerAddress: 'sf-customer-address',
   frameNumber: 'sf-frame-number',
   engineNumber: 'sf-engine-number',
@@ -122,7 +120,6 @@ const V1ServiceForms: React.FC = () => {
   const [customerPhone, setCustomerPhone] = useState<string>(
     (params.get('phone') || '').replace(/\D/g, '')
   );
-  const [customerKtp, setCustomerKtp] = useState<string>('');
   const [customerAddress, setCustomerAddress] = useState<string>('');
 
   const [frameNumber, setFrameNumber] = useState<string>('');
@@ -214,12 +211,6 @@ const V1ServiceForms: React.FC = () => {
           return 'Nomor HP harus berupa 9 sampai 13 angka.';
         }
         return '';
-      case 'customerKtp':
-        if (!customerKtp.trim()) return 'Nomor KTP wajib diisi.';
-        if (!/^\d{16}$/.test(customerKtp.trim())) {
-          return 'Nomor KTP harus tepat 16 angka.';
-        }
-        return '';
       case 'customerAddress':
         return customerAddress.trim() ? '' : 'Alamat konsumen wajib diisi.';
       case 'frameNumber':
@@ -261,7 +252,6 @@ const V1ServiceForms: React.FC = () => {
     setCustomerName('');
     setCustomerType('');
     setCustomerPhone('');
-    setCustomerKtp('');
     setCustomerAddress('');
     setFrameNumber('');
     setEngineNumber('');
@@ -284,7 +274,6 @@ const V1ServiceForms: React.FC = () => {
       'customerName',
       'customerType',
       'customerPhone',
-      'customerKtp',
       'customerAddress',
       'frameNumber',
       'engineNumber',
@@ -316,7 +305,6 @@ const V1ServiceForms: React.FC = () => {
           nama: customerName.trim(),
           jenisKonsumen: customerType,
           hp: customerPhone.trim(),
-          ktp: customerKtp.trim(),
           alamat: customerAddress.trim(),
         },
         vehicle: {
@@ -803,12 +791,6 @@ const V1ServiceForms: React.FC = () => {
                   <dt className="text-[#646B7C]">Nomor HP</dt>
                   <dd className="font-mono font-medium text-right text-[#1E2230]">
                     {renderFieldOrBelumDiisi(record.customer.hp)}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-[#646B7C]">Nomor KTP</dt>
-                  <dd className="font-mono font-medium text-right text-[#1E2230]">
-                    {renderFieldOrBelumDiisi(record.customer.ktp)}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -1398,51 +1380,27 @@ const V1ServiceForms: React.FC = () => {
                       </div>
                     </FormField>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <FormField
+                    <FormField
+                      id={FIELD_IDS.customerPhone}
+                      label="Nomor HP"
+                      error={errors.customerPhone}
+                    >
+                      <input
                         id={FIELD_IDS.customerPhone}
-                        label="Nomor HP"
-                        error={errors.customerPhone}
-                      >
-                        <input
-                          id={FIELD_IDS.customerPhone}
-                          type="text"
-                          inputMode="numeric"
-                          value={customerPhone}
-                          placeholder="9 sampai 13 angka"
-                          onChange={(e) => {
-                            setCustomerPhone(e.target.value.replace(/\D/g, ''));
-                            if (errors.customerPhone) {
-                              setErrors((p) => ({ ...p, customerPhone: undefined }));
-                            }
-                          }}
-                          onBlur={() => handleBlur('customerPhone')}
-                          className="admin-input font-mono"
-                        />
-                      </FormField>
-
-                      <FormField
-                        id={FIELD_IDS.customerKtp}
-                        label="Nomor KTP"
-                        error={errors.customerKtp}
-                      >
-                        <input
-                          id={FIELD_IDS.customerKtp}
-                          type="text"
-                          inputMode="numeric"
-                          value={customerKtp}
-                          placeholder="16 angka sesuai KTP"
-                          onChange={(e) => {
-                            setCustomerKtp(e.target.value.replace(/\D/g, ''));
-                            if (errors.customerKtp) {
-                              setErrors((p) => ({ ...p, customerKtp: undefined }));
-                            }
-                          }}
-                          onBlur={() => handleBlur('customerKtp')}
-                          className="admin-input font-mono"
-                        />
-                      </FormField>
-                    </div>
+                        type="text"
+                        inputMode="numeric"
+                        value={customerPhone}
+                        placeholder="9 sampai 13 angka"
+                        onChange={(e) => {
+                          setCustomerPhone(e.target.value.replace(/\D/g, ''));
+                          if (errors.customerPhone) {
+                            setErrors((p) => ({ ...p, customerPhone: undefined }));
+                          }
+                        }}
+                        onBlur={() => handleBlur('customerPhone')}
+                        className="admin-input font-mono"
+                      />
+                    </FormField>
 
                     <FormField
                       id={FIELD_IDS.customerAddress}

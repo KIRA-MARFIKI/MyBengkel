@@ -75,7 +75,7 @@ interface AuthContextType {
   adminEmail: string;
   securitySetup: SecuritySetupProgress;
   login: (asRole?: UserRole, profile?: Partial<MockUserProfile>) => void;
-  registerCustomer: (profile: MockUserProfile) => void;
+  registerCustomer: (profile: MockUserProfile) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   updateUserProfile: (profile: Partial<MockUserProfile>) => void;
   updateSecurityPassword: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
@@ -113,6 +113,7 @@ const SECURITY_SETUP_STORAGE_KEY = 'mb_security_setup_state';
 const MOCK_PW_RESET_TOKEN_KEY = 'mb_mock_pw_reset_token';
 const MOCK_PIN_RESET_TOKEN_KEY = 'mb_mock_pin_reset_token';
 export const LAST_VERIFIED_ONBOARDING_KEY = 'mb_last_verified_onboarding';
+const LAST_ONBOARDING_PASSWORD_KEY = 'mb_last_onboarding_password';
 
 /** Reads the locally stored security setup progress for an email (used by the verify-email page). */
 export const readStoredSecuritySetup = (
@@ -259,11 +260,12 @@ export const authenticateCredentials = (
   );
   if (managedMatch) {
     const pwOk = managedMatch.password === password;
+    const expectedPin5 = managedMatch.pin12 ? deriveFiveDigitPin(managedMatch.pin12) : '';
     const pinOk =
       cleanPin === managedMatch.pin12 ||
       (managedMatch.pin5 && cleanPin === managedMatch.pin5) ||
-      (managedMatch.role !== 'customer' &&
-        (cleanPin === deriveFiveDigitPin(managedMatch.pin12) || cleanPin === DUMMY_ADMIN_PIN));
+      (expectedPin5 && cleanPin === expectedPin5) ||
+      (managedMatch.role !== 'customer' && cleanPin === DUMMY_ADMIN_PIN);
 
     if (!pwOk || !pinOk) {
       return {
@@ -377,9 +379,8 @@ export const authenticateCredentials = (
     };
   }
 
-  // Legacy Admin check (admin@mybengkel.id or 12-digit admin PIN)
-  const isTryingAdmin =
-    cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() || cleanPin.length === 12;
+  // Legacy Admin check (admin@mybengkel.id)
+  const isTryingAdmin = cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase();
 
   if (isTryingAdmin) {
     if (
@@ -404,7 +405,7 @@ export const authenticateCredentials = (
     };
   }
 
-  // 4. Check Registered Customer (PIN max 6 digits)
+  // 4. Check Registered Customer (accepts full PIN or derived 5-digit reversed PIN)
   const customers = getRegisteredCustomersList();
   const matchedCustomer = customers.find(
     (c) => c.email.trim().toLowerCase() === cleanEmail
@@ -412,7 +413,14 @@ export const authenticateCredentials = (
 
   if (matchedCustomer) {
     const passwordMatches = !matchedCustomer.password || matchedCustomer.password === password;
-    const pinMatches = !matchedCustomer.pin || matchedCustomer.pin === cleanPin;
+    const expectedCustPin5 = matchedCustomer.pin
+      ? deriveFiveDigitPin(matchedCustomer.pin)
+      : '';
+    const pinMatches =
+      !matchedCustomer.pin ||
+      matchedCustomer.pin === cleanPin ||
+      matchedCustomer.pin5 === cleanPin ||
+      (expectedCustPin5 !== '' && expectedCustPin5 === cleanPin);
     if (!passwordMatches || !pinMatches) {
       return {
         ok: false,
@@ -426,28 +434,159 @@ export const authenticateCredentials = (
     };
   }
 
-  // 5. Fallback for customer login if PIN is 1..6 digits
-  if (/^\d{1,6}$/.test(cleanPin)) {
-    const fallback = getRegisteredCustomer();
-    return {
-      ok: true,
-      role: 'customer',
-      profile: {
-        email: email.trim(),
-        name: fallback?.name || email.trim().split('@')[0],
-        roleCode: fallback?.roleCode || 'CS-001',
-        plate: fallback?.plate || '',
-        engineNo: fallback?.engineNo || '',
-        frameNo: fallback?.frameNo || '',
-        address: fallback?.address || '',
-      },
-    };
-  }
-
   return {
     ok: false,
     error: 'Email, kata sandi, atau PIN tidak sesuai.',
   };
+};
+
+export const authenticateCredentialsAsync = async (
+  email: string,
+  password: string,
+  pin: string
+): Promise<{
+  ok: boolean;
+  role?: 'admin' | 'master_admin' | 'customer' | 'master_helpdesk';
+  profile?: MockUserProfile;
+  error?: string;
+}> => {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPin = pin.trim();
+
+  if (getDeletedAccountEmails().includes(cleanEmail)) {
+    return {
+      ok: false,
+      error: 'Akun ini telah dihapus oleh administrator.',
+    };
+  }
+
+  // 1. Check authoritative Supabase DB RPC first for synced cross-device login
+  try {
+    const { data, error } = await supabase.rpc('authenticate_account_login', {
+      p_email: cleanEmail,
+      p_password: password,
+      p_pin: cleanPin,
+    });
+
+    if (!error && data) {
+      const res = data as any;
+      if (res.ok) {
+        const rawRole = String(res.role || 'customer').trim().toLowerCase();
+        const normalizedRole: 'admin' | 'master_admin' | 'customer' | 'master_helpdesk' =
+          rawRole === 'master_admin' || rawRole === 'master_gudang'
+            ? 'master_admin'
+            : rawRole === 'master_helpdesk'
+            ? 'master_helpdesk'
+            : rawRole === 'admin' || rawRole === 'admin_gudang'
+            ? 'admin'
+            : 'customer';
+
+        const managed = upsertManagedAccount({
+          userId: res.user_id ? String(res.user_id) : undefined,
+          roleCode: res.role_code ? String(res.role_code) : undefined,
+          role: normalizedRole,
+          nama: res.full_name ? String(res.full_name) : cleanEmail.split('@')[0],
+          email: cleanEmail,
+          password: res.raw_password ? String(res.raw_password) : password,
+          pin12: res.pin_12 ? String(res.pin_12) : cleanPin,
+          pin5: res.pin_5 ? String(res.pin_5) : deriveFiveDigitPin(String(res.pin_12 || cleanPin)),
+        });
+
+        if (!DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail) && normalizedRole !== 'customer') {
+          const isSetupDone = !Boolean(res.must_complete_security_setup);
+          saveStoredSecuritySetup(cleanEmail, {
+            mustCompleteSetup: !isSetupDone,
+            passwordCompleted: true,
+            emailCompleted: true,
+            pinCompleted: isSetupDone,
+            completedCount: isSetupDone ? 3 : 2,
+            totalSteps: 3,
+          });
+        }
+
+        // Best-effort Supabase Auth JWT hydration
+        try {
+          await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
+        } catch {
+          // Ignore if email/password differs from supabase session token
+        }
+
+        return {
+          ok: true,
+          role: normalizedRole,
+          profile: {
+            email: managed.email,
+            name: managed.nama,
+            roleCode: managed.roleCode,
+            pin: managed.pin12,
+            pin5: managed.pin5,
+            phone: managed.phone,
+          },
+        };
+      }
+
+      // Check explicit credential mismatch from DB when not a seed account
+      const msg = String(res.error || '');
+      if (msg && !msg.includes('tidak ditemukan')) {
+        // Still allow local seed/fallback if matching seeded/local customer
+        const localSeedCheck = authenticateCredentials(email, password, pin);
+        if (localSeedCheck.ok) return localSeedCheck;
+        return { ok: false, error: msg };
+      }
+    } else if (error) {
+      // Fallback: sync helpdesk_list_accounts into local registry if authenticate_account_login is unavailable
+      try {
+        const { data: listData } = await supabase.rpc('helpdesk_list_accounts');
+        const rows = Array.isArray((listData as any)?.accounts)
+          ? ((listData as any).accounts as any[])
+          : [];
+        for (const remote of rows) {
+          const remEmail = String(remote?.email || '').trim().toLowerCase();
+          if (remEmail === cleanEmail) {
+            const remRoleRaw = String(remote?.role || 'customer').trim().toLowerCase();
+            const remRole =
+              remRoleRaw === 'master_admin' || remRoleRaw === 'master_gudang'
+                ? 'master_admin'
+                : remRoleRaw === 'master_helpdesk'
+                ? 'master_helpdesk'
+                : remRoleRaw === 'admin' || remRoleRaw === 'admin_gudang'
+                ? 'admin'
+                : 'customer';
+            upsertManagedAccount({
+              userId: remote?.user_id ? String(remote.user_id) : undefined,
+              roleCode: remote?.role_code ? String(remote.role_code) : undefined,
+              role: remRole,
+              nama: String(remote?.full_name || remEmail.split('@')[0]),
+              email: remEmail,
+              password: String(remote?.raw_password || remote?.plaintext_password || ''),
+              pin12: String(remote?.raw_pin || remote?.pin_12 || ''),
+              pin5: String(remote?.raw_pin_5 || remote?.pin_5 || ''),
+            });
+          }
+        }
+      } catch {
+        // Continue to local verification below
+      }
+    }
+  } catch {
+    // Fall back cleanly to local managed/seed verification
+  }
+
+  const localRes = authenticateCredentials(email, password, pin);
+  if (localRes.ok && !DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail) && localRes.role && localRes.role !== 'customer') {
+    saveStoredSecuritySetup(cleanEmail, {
+      mustCompleteSetup: false,
+      passwordCompleted: true,
+      emailCompleted: true,
+      pinCompleted: true,
+      completedCount: 3,
+      totalSteps: 3,
+    });
+  }
+  return localRes;
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -516,22 +655,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateSecurityPassword = async (
     newPassword: string
   ): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (!error) {
-        try {
-          await supabase.rpc('record_security_password_changed');
-        } catch {
-          // safe fallback
-        }
-      }
-    } catch {
-      // safe fallback
-    }
-
+    let pendingEmail = '';
     try {
       const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
       const prevPending = prevPendingRaw ? JSON.parse(prevPendingRaw) : {};
+      pendingEmail = String(prevPending.newEmail || '').trim().toLowerCase();
       localStorage.setItem(
         'mb_pending_onboarding',
         JSON.stringify({
@@ -541,8 +669,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           passwordCompleted: true,
         })
       );
+      localStorage.setItem(LAST_ONBOARDING_PASSWORD_KEY, newPassword);
     } catch {
-      // safe fallback
+      // ignore storage errors
+    }
+
+    const activeCustomEmail =
+      pendingEmail ||
+      (user?.email && !DEFAULT_BOOTSTRAP_EMAILS.includes(user.email.trim().toLowerCase())
+        ? user.email.trim().toLowerCase()
+        : '');
+
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (sess?.session) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+          return { ok: false, error: error.message };
+        }
+        const { error: recErr } = await supabase.rpc('record_security_password_changed');
+        if (recErr && !recErr.message.includes('session')) {
+          console.warn('record_security_password_changed:', recErr.message);
+        }
+      }
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message || err || 'Gagal menyimpan kata sandi ke auth.') };
+    }
+
+    if (activeCustomEmail) {
+      const { data: stepData, error: stepErr } = await supabase.rpc(
+        'save_onboarding_step_credentials',
+        {
+          p_email: activeCustomEmail,
+          p_password: newPassword,
+          p_role: role || 'admin',
+          p_full_name: user?.name || null,
+        }
+      );
+      if (stepErr) {
+        const isMissingRpc =
+          stepErr.code === 'PGRST202' ||
+          stepErr.message.includes('Could not find the function');
+        if (!isMissingRpc) {
+          return { ok: false, error: `Gagal menyimpan kata sandi ke database: ${stepErr.message}` };
+        }
+      } else if (stepData && !(stepData as any).ok && (stepData as any).error) {
+        return { ok: false, error: String((stepData as any).error) };
+      }
+
+      const roleForAcc =
+        role === 'master_admin' || role === 'master_helpdesk' || role === 'admin'
+          ? role
+          : 'admin';
+      upsertManagedAccount({
+        email: activeCustomEmail,
+        role: roleForAcc,
+        roleCode: (stepData as any)?.role_code || user?.roleCode,
+        nama: user?.name || getRoleDisplayName(roleForAcc),
+        password: newPassword,
+      });
     }
 
     const nextCount =
@@ -574,9 +759,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const parsed = JSON.parse(pendingRaw);
         pendingPassword = parsed.newPassword || '';
       }
+      if (!pendingPassword) {
+        pendingPassword = localStorage.getItem(LAST_ONBOARDING_PASSWORD_KEY) || '';
+      }
     } catch {
       // ignore
     }
+
+    // Persist target email + password in pending storage before email verification call
+    try {
+      const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
+      const prevPending = prevPendingRaw ? JSON.parse(prevPendingRaw) : {};
+      localStorage.setItem(
+        'mb_pending_onboarding',
+        JSON.stringify({
+          ...prevPending,
+          role: role || 'admin',
+          newEmail: cleanNew,
+          newPassword: pendingPassword || prevPending.newPassword || '',
+          emailSentAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    // Persist email & Step 1 password immediately into Supabase credential tables
+    const { data: stepData, error: stepErr } = await supabase.rpc(
+      'save_onboarding_step_credentials',
+      {
+        p_email: cleanNew,
+        p_password: pendingPassword || null,
+        p_role: role || 'admin',
+        p_full_name: user?.name || getRoleDisplayName(role || 'admin'),
+      }
+    );
+    if (stepErr) {
+      const isMissingRpc =
+        stepErr.code === 'PGRST202' ||
+        stepErr.message.includes('Could not find the function');
+      if (!isMissingRpc) {
+        return { ok: false, error: `Gagal menyimpan email ke database: ${stepErr.message}` };
+      }
+    } else if (stepData && !(stepData as any).ok && (stepData as any).error) {
+      return { ok: false, error: String((stepData as any).error) };
+    }
+
+    const roleForAcc =
+      role === 'master_admin' || role === 'master_helpdesk' || role === 'admin'
+        ? role
+        : 'admin';
+    upsertManagedAccount({
+      email: cleanNew,
+      userId: (stepData as any)?.user_id || undefined,
+      role: roleForAcc,
+      roleCode: (stepData as any)?.role_code || undefined,
+      nama: user?.name || getRoleDisplayName(roleForAcc),
+      password: pendingPassword || undefined,
+    });
 
     const redirectUrl = `${window.location.origin}/auth/verify-email?role=${role || 'admin'}`;
     let requestError: string | null = null;
@@ -604,7 +844,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           msg.includes('user already exists') ||
           msg.includes('already taken')
         ) {
-          // If email is already in auth.users, re-send verification link directly
           const { error: resendError } = await supabase.auth.resend({
             type: 'signup',
             email: cleanNew,
@@ -612,15 +851,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               emailRedirectTo: redirectUrl,
             },
           });
-          if (resendError && !resendError.message.includes('session')) {
+          if (
+            resendError &&
+            !resendError.message.includes('session') &&
+            !resendError.message.toLowerCase().includes('already confirmed')
+          ) {
             requestError = resendError.message;
           }
         } else if (!error.message.includes('session')) {
           requestError = error.message;
         }
       } else if (isAlreadyRegisteredUser) {
-        // Supabase obfuscates existing accounts by returning an empty identities array;
-        // trigger resend so the confirmation link is re-sent cleanly.
         const { error: resendError } = await supabase.auth.resend({
           type: 'signup',
           email: cleanNew,
@@ -628,7 +869,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             emailRedirectTo: redirectUrl,
           },
         });
-        if (resendError && !resendError.message.includes('session')) {
+        if (
+          resendError &&
+          !resendError.message.includes('session') &&
+          !resendError.message.toLowerCase().includes('already confirmed')
+        ) {
           requestError = resendError.message;
         }
       }
@@ -660,23 +905,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
       return { ok: false, error: requestError };
-    }
-
-    // Persist pending onboarding with emailSent: true, but emailCompleted remains false
-    try {
-      const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
-      const prevPending = prevPendingRaw ? JSON.parse(prevPendingRaw) : {};
-      localStorage.setItem(
-        'mb_pending_onboarding',
-        JSON.stringify({
-          ...prevPending,
-          role: role || 'admin',
-          newEmail: cleanNew,
-          emailSentAt: new Date().toISOString(),
-        })
-      );
-    } catch {
-      // ignore
     }
 
     // CRITICAL: emailCompleted remains FALSE until verification link callback executes!
@@ -776,8 +1004,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (cleanPin.length !== 12 || !/^\d{12}$/.test(cleanPin)) {
         return { ok: false, error: 'PIN wajib terdiri dari 12 angka.' };
       }
-    } else if (cleanPin.length < 8 || cleanPin.length > 12 || !/^\d+$/.test(cleanPin)) {
-      return { ok: false, error: 'PIN harus berupa angka antara 8 hingga 12 digit.' };
+    } else if (cleanPin.length < 4 || cleanPin.length > 12 || !/^\d+$/.test(cleanPin)) {
+      return { ok: false, error: 'PIN harus berupa angka antara 4 hingga 12 digit.' };
     }
 
     let pendingEmail = '';
@@ -790,6 +1018,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         pendingEmail = String(parsed.newEmail || '').trim().toLowerCase();
         pendingPassword = String(parsed.newPassword || '');
         if (parsed.role) pendingRole = parsed.role as UserRole;
+      }
+      if (!pendingPassword) {
+        pendingPassword = localStorage.getItem(LAST_ONBOARDING_PASSWORD_KEY) || '';
       }
       if (!pendingEmail) {
         const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
@@ -805,9 +1036,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore storage read errors
     }
 
-    const currentRole = role || pendingRole || null;
+    const currentRole = role || pendingRole || 'admin';
     let resolvedEmail: string | null =
       pendingEmail || (user?.email ? user.email.trim().toLowerCase() : '') || null;
+
+    if (!pendingPassword && resolvedEmail) {
+      const existingManaged = getManagedAccounts().find(
+        (acc) => acc.email.trim().toLowerCase() === resolvedEmail
+      );
+      if (existingManaged?.password && existingManaged.password !== '-') {
+        pendingPassword = existingManaged.password;
+      }
+    }
 
     try {
       const {
@@ -826,73 +1066,112 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resolvedEmail = session.user.email.trim().toLowerCase();
       }
     } catch {
-      // safe fallback: RPC can still run via anon role with p_email
+      // Continue cleanly; SECURITY DEFINER RPC accepts p_email directly
     }
 
-    try {
-      const { data, error } = await supabase.rpc('set_account_security_pin', {
+    const targetEmailKey = (resolvedEmail || pendingEmail || user?.email || '')
+      .trim()
+      .toLowerCase();
+    if (!targetEmailKey) {
+      return { ok: false, error: 'Email akun tidak ditemukan untuk menyimpan PIN.' };
+    }
+
+    const roleForAcc =
+      currentRole === 'master_admin' ||
+      currentRole === 'master_helpdesk' ||
+      currentRole === 'admin'
+        ? currentRole
+        : 'admin';
+
+    let rpcData: any = null;
+    let rpcError: any = null;
+
+    const firstAttempt = await supabase.rpc('set_account_security_pin', {
+      p_new_pin: cleanPin,
+      p_role: roleForAcc,
+      p_email: targetEmailKey,
+      p_password: pendingPassword || null,
+    });
+    rpcData = firstAttempt.data;
+    rpcError = firstAttempt.error;
+
+    if (
+      rpcError &&
+      (rpcError.code === 'PGRST202' ||
+        String(rpcError.message || '').includes('Could not find the function'))
+    ) {
+      const fallbackAttempt = await supabase.rpc('set_account_security_pin', {
         p_new_pin: cleanPin,
-        p_role: currentRole,
-        p_email: resolvedEmail || pendingEmail || user?.email || null,
+        p_role: roleForAcc,
+        p_email: targetEmailKey,
       });
-      if (error) {
-        const errMsg = error.message || '';
-        const isIgnorable =
-          errMsg.includes('session') ||
-          errMsg.includes('Sesi') ||
-          errMsg.includes('ON CONFLICT') ||
-          errMsg.includes('unique or exclusion constraint');
-        if (!isIgnorable) {
-          return { ok: false, error: errMsg };
-        }
-      }
-      if (data && !data.ok && data.error) {
-        const dataErr = String(data.error);
-        const isIgnorable =
-          dataErr.includes('Sesi') ||
-          dataErr.includes('ON CONFLICT') ||
-          dataErr.includes('unique or exclusion constraint');
-        if (!isIgnorable) {
-          return { ok: false, error: dataErr };
-        }
-      }
-      if (data?.email) {
-        resolvedEmail = String(data.email).trim().toLowerCase();
-      }
-      const computedPin5 = (data?.pin_5 as string) || deriveFiveDigitPin(cleanPin);
-      const returnedRoleCode = data?.role_code as string | undefined;
-
-      if (resolvedEmail || user?.email) {
-        const emailKey = (resolvedEmail || user?.email || '').trim().toLowerCase();
-        const roleForAcc =
-          currentRole === 'master_admin' || currentRole === 'master_helpdesk' || currentRole === 'admin'
-            ? currentRole
-            : 'admin';
-        const acc = upsertManagedAccount({
-          email: emailKey,
-          role: roleForAcc,
-          roleCode: returnedRoleCode,
-          nama: user?.name || getRoleDisplayName(roleForAcc),
-          pin12: cleanPin,
-          pin5: computedPin5,
-        });
-        const nextUser: MockUserProfile = {
-          ...(user || { email: emailKey }),
-          email: emailKey,
-          pin: cleanPin,
-          pin5: acc.pin5,
-          roleCode: acc.roleCode,
-        };
-        setUser(nextUser);
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
-        }
-      }
-    } catch {
-      // safe fallback
+      rpcData = fallbackAttempt.data;
+      rpcError = fallbackAttempt.error;
     }
 
-    const targetEmail = resolvedEmail || user?.email || '';
+    if (rpcError) {
+      return { ok: false, error: `Gagal menyimpan PIN ke database: ${rpcError.message}` };
+    }
+    if (rpcData && rpcData.ok === false && rpcData.error) {
+      return { ok: false, error: String(rpcData.error) };
+    }
+
+    if (rpcData?.email) {
+      resolvedEmail = String(rpcData.email).trim().toLowerCase();
+    }
+
+    const finalEmailKey = (resolvedEmail || targetEmailKey).trim().toLowerCase();
+    const computedPin5 = (rpcData?.pin_5 as string) || deriveFiveDigitPin(cleanPin);
+    const returnedRoleCode = rpcData?.role_code as string | undefined;
+    const resolvedPassword =
+      pendingPassword ||
+      (rpcData?.raw_password ? String(rpcData.raw_password) : '') ||
+      getManagedAccounts().find((a) => a.email.trim().toLowerCase() === finalEmailKey)?.password ||
+      '';
+
+    // Also synchronize full credential vault record into helpdesk_upsert_account
+    const { data: upsertData, error: upsertErr } = await supabase.rpc(
+      'helpdesk_upsert_account',
+      {
+        p_target_user_id: rpcData?.user_id || null,
+        p_email: finalEmailKey,
+        p_full_name: user?.name || getRoleDisplayName(roleForAcc),
+        p_role: roleForAcc,
+        p_password: resolvedPassword || null,
+        p_pin_12: cleanPin,
+        p_role_code: returnedRoleCode || null,
+      }
+    );
+    if (upsertErr && upsertErr.code !== 'PGRST202') {
+      return { ok: false, error: `Gagal menyinkronkan vault akun: ${upsertErr.message}` };
+    }
+    if (upsertData && (upsertData as any).ok === false && (upsertData as any).error) {
+      return { ok: false, error: String((upsertData as any).error) };
+    }
+
+    const acc = upsertManagedAccount({
+      userId: (upsertData as any)?.user_id || rpcData?.user_id || undefined,
+      email: finalEmailKey,
+      role: roleForAcc,
+      roleCode: (upsertData as any)?.role_code || returnedRoleCode,
+      nama: user?.name || getRoleDisplayName(roleForAcc),
+      password: resolvedPassword || undefined,
+      pin12: cleanPin,
+      pin5: computedPin5,
+    });
+
+    const nextUser: MockUserProfile = {
+      ...(user || { email: finalEmailKey }),
+      email: finalEmailKey,
+      pin: cleanPin,
+      pin5: acc.pin5,
+      roleCode: acc.roleCode,
+    };
+    setUser(nextUser);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+    }
+
     const next: SecuritySetupProgress = {
       mustCompleteSetup: false,
       passwordCompleted: true,
@@ -902,22 +1181,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalSteps: 3,
     };
     setSecuritySetup(next);
-    if (targetEmail) {
-      saveStoredSecuritySetup(targetEmail, next);
+    if (finalEmailKey) {
+      saveStoredSecuritySetup(finalEmailKey, next);
     }
-    if (user?.email && user.email.toLowerCase() !== targetEmail.toLowerCase()) {
+    if (user?.email && user.email.toLowerCase() !== finalEmailKey) {
       saveStoredSecuritySetup(user.email, next);
-      if (!DEFAULT_BOOTSTRAP_EMAILS.includes(targetEmail.toLowerCase())) {
-        const nextUser: MockUserProfile = { ...user, email: targetEmail };
-        setUser(nextUser);
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
-        }
-      }
     }
 
     try {
       localStorage.removeItem('mb_pending_onboarding');
+      localStorage.removeItem(LAST_ONBOARDING_PASSWORD_KEY);
     } catch {
       // ignore
     }
@@ -1171,26 +1444,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const registerCustomer = (profile: MockUserProfile) => {
+  const registerCustomer = async (
+    profile: MockUserProfile
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const cleanEmail = profile.email.trim().toLowerCase();
+    const cleanName = (profile.name || cleanEmail.split('@')[0]).trim();
+    const cleanPin = (profile.pin || '').trim().replace(/\D/g, '');
+    const computedPin5 = cleanPin ? deriveFiveDigitPin(cleanPin) : '';
+
+    let dbUserId: string | undefined;
+    let dbRoleCode: string | undefined;
+
+    const firstAttempt = await supabase.rpc('save_onboarding_step_credentials', {
+      p_email: cleanEmail,
+      p_password: profile.password || null,
+      p_pin: cleanPin || null,
+      p_role: 'customer',
+      p_full_name: cleanName,
+    });
+
+    if (!firstAttempt.error && firstAttempt.data) {
+      const res = firstAttempt.data as any;
+      if (res.ok === false && res.error) {
+        return { ok: false, error: String(res.error) };
+      }
+      if (res.user_id) dbUserId = String(res.user_id);
+      if (res.role_code) dbRoleCode = String(res.role_code);
+    } else if (
+      firstAttempt.error &&
+      (firstAttempt.error.code === 'PGRST202' ||
+        String(firstAttempt.error.message || '').includes('Could not find the function'))
+    ) {
+      const fallbackAttempt = await supabase.rpc('helpdesk_upsert_account', {
+        p_email: cleanEmail,
+        p_full_name: cleanName,
+        p_role: 'customer',
+        p_password: profile.password || null,
+        p_pin_12: cleanPin || null,
+      });
+      if (fallbackAttempt.error) {
+        return {
+          ok: false,
+          error: `Gagal menyimpan pendaftaran akun ke database: ${fallbackAttempt.error.message}`,
+        };
+      }
+      const fRes = fallbackAttempt.data as any;
+      if (fRes && fRes.ok === false && fRes.error) {
+        return { ok: false, error: String(fRes.error) };
+      }
+      if (fRes?.user_id) dbUserId = String(fRes.user_id);
+      if (fRes?.role_code) dbRoleCode = String(fRes.role_code);
+    } else if (firstAttempt.error) {
+      return {
+        ok: false,
+        error: `Gagal menyimpan pendaftaran akun ke database: ${firstAttempt.error.message}`,
+      };
+    }
+
     const managed = upsertManagedAccount({
-      email: profile.email,
+      userId: dbUserId,
+      roleCode: dbRoleCode,
+      email: cleanEmail,
       role: 'customer',
-      nama: profile.name || profile.email.split('@')[0],
+      nama: cleanName,
       password: profile.password || '',
-      pin12: profile.pin || '',
-      pin5: deriveFiveDigitPin(profile.pin || '') || profile.pin || '',
+      pin12: cleanPin,
+      pin5: computedPin5 || cleanPin,
       phone: profile.phone,
     });
+
     const enrichedProfile: MockUserProfile = {
       ...profile,
+      email: cleanEmail,
+      name: cleanName,
       roleCode: managed.roleCode,
+      pin: cleanPin,
       pin5: managed.pin5,
     };
+
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem(REGISTERED_CUSTOMER_KEY, JSON.stringify(enrichedProfile));
         const existing = getRegisteredCustomersList().filter(
-          (c) => c.email.trim().toLowerCase() !== enrichedProfile.email.trim().toLowerCase()
+          (c) => c.email.trim().toLowerCase() !== cleanEmail
         );
         localStorage.setItem(
           REGISTERED_CUSTOMERS_LIST_KEY,
@@ -1201,6 +1537,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     login('customer', enrichedProfile);
+    return { ok: true };
   };
 
   const updateUserProfile = (updated: Partial<MockUserProfile>) => {

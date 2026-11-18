@@ -833,7 +833,7 @@ const V1WorkOrders: React.FC = () => {
         }
       >
         <div className="space-y-5">
-          {/* Data konsumen & Kendaraan definition list (No KTP) */}
+          {/* Data konsumen & Kendaraan definition list */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-[16px] border border-[#EEF0F4] bg-[#F6F7FA]/60">
             <div>
               <h3 className="admin-micro text-[#646B7C] mb-2">Data konsumen</h3>
