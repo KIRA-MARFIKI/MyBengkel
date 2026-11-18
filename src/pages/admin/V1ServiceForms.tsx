@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useAdmin,
   createServiceFromDraft,
   approveToWorkOrder,
   cancelServiceForm,
 } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import type { ServiceForm, ServiceFormLine, ServiceFormStatus } from '../../data/adminDummy';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
@@ -76,6 +77,8 @@ const normalizeTabParam = (raw: string | null): ActiveTab | null => {
 
 const V1ServiceForms: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const canExecuteServis = (role || 'admin') === 'admin';
   const [params, setSearchParams] = useSearchParams();
   const { serviceForms, workOrders, parts, getPartStock, updateServiceForm } = useAdmin();
   const { notifyAction } = useActionIsland();
@@ -1262,6 +1265,10 @@ const V1ServiceForms: React.FC = () => {
       </DataCard>
     );
   };
+
+  if (!canExecuteServis) {
+    return <Navigate to="/admin/v1/booking" replace />;
+  }
 
   return (
     <div ref={containerRef} className="flex flex-col gap-5">

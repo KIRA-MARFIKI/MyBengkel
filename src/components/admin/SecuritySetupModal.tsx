@@ -250,7 +250,16 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 Wajib: Keamanan Akun
               </span>
               <span className="text-[11px] sm:text-xs text-[#9DA4B4] font-medium whitespace-nowrap">
-                Peran: <strong className="text-white capitalize">{role?.replace('_', ' ')}</strong>
+                Peran:{' '}
+                <strong className="text-white">
+                  {role === 'admin'
+                    ? `Admin • ${user?.roleCode || 'AD-001'}`
+                    : role === 'master_admin'
+                    ? `Master Gudang • ${user?.roleCode || 'MG-001'}`
+                    : role === 'master_helpdesk'
+                    ? `Master Helpdesk • ${user?.roleCode || 'HD-001'}`
+                    : role?.replace('_', ' ')}
+                </strong>
               </span>
             </div>
 
@@ -699,9 +708,17 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   placeholder="123456789012"
                   className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] font-mono tracking-widest focus:outline-none focus:border-[#1E2230]"
                 />
-                <span className="block text-[11px] text-[#646B7C] mt-1">
-                  Panjang saat ini: <strong className="tabular-nums">{newPin.length}</strong> / 12 digit angka.
-                </span>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#646B7C]">
+                  <span>
+                    Panjang saat ini: <strong className="tabular-nums">{newPin.length}</strong> / 12 digit angka.
+                  </span>
+                  <span>
+                    PIN Gudang / Ekspor 5 Digit:{' '}
+                    <strong className="font-mono text-[#1E2230] bg-[#EEF0F4] px-1.5 py-0.5 rounded">
+                      {newPin.length >= 5 ? newPin.slice(-5).split('').reverse().join('') : '-----'}
+                    </strong>
+                  </span>
+                </div>
               </div>
 
               {/* Confirm New PIN */}

@@ -502,19 +502,19 @@
       transform 90ms ease-out;
   }
   .admin-tab-inactive {
-    background-color: #FFFFFF;
-    color: #1E2230;
-    border: 1px solid #D9DDE6;
+    background-color: #FFFFFF !important;
+    color: #1E2230 !important;
+    border: 1px solid #D9DDE6 !important;
   }
   @media (hover: hover) and (pointer: fine) {
     .admin-tab-inactive:hover {
-      background-color: #F6F7FA;
+      background-color: #F6F7FA !important;
     }
   }
   .admin-tab-active {
-    background-color: #1E2230;
-    color: #FFFFFF;
-    border: 1px solid #1E2230;
+    background-color: #1E2230 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #1E2230 !important;
   }
 
   @media (max-width: 767px) {

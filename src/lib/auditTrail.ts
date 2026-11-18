@@ -4,7 +4,8 @@ import {
   DUMMY_ADMIN_PIN,
   DUMMY_ADMIN_LOGIN_PIN,
   DUMMY_MASTER,
-  DUMMY_ADMIN_GUDANG,
+  DUMMY_MASTER_HELPDESK,
+  getManagedAccounts,
 } from './mockCredentials';
 import { formatNowJakarta } from './stockOpname';
 
@@ -101,14 +102,58 @@ export function verifyExportPin(pin: string): ExportAuthResult {
     return { ok: false, error: 'PIN wajib diisi.' };
   }
 
-  // 1. Check Master Gudang / Master Admin PIN: 12345
-  if (clean === DUMMY_MASTER.pin) {
+  // Check Managed Accounts (5-digit derived PINs like 21098 and 12-digit PINs)
+  const accounts = getManagedAccounts();
+  const matchingMaster = accounts.find(
+    (acc) =>
+      (acc.role === 'master_admin' || acc.role === 'master_gudang' || acc.role === 'master_helpdesk') &&
+      (clean === acc.pin5 || clean === acc.pin12)
+  );
+  if (matchingMaster) {
     return {
       ok: true,
       role: 'master_admin',
       actor: {
-        id: DUMMY_MASTER.id, // MG-001
-        nama: DUMMY_MASTER.nama, // Master Gudang Dummy
+        id: matchingMaster.roleCode || DUMMY_MASTER.id,
+        nama: matchingMaster.nama || DUMMY_MASTER.nama,
+        role:
+          matchingMaster.role === 'master_helpdesk'
+            ? 'master_helpdesk'
+            : 'master_admin',
+      },
+    };
+  }
+
+  const matchingAdmin = accounts.find(
+    (acc) =>
+      (acc.role === 'admin' || acc.role === 'admin_gudang') &&
+      (clean === acc.pin5 || clean === acc.pin12)
+  );
+  if (matchingAdmin) {
+    return {
+      ok: true,
+      role: 'admin',
+      actor: {
+        id: matchingAdmin.roleCode || DUMMY_ADMIN.id,
+        nama: matchingAdmin.nama || DUMMY_ADMIN.nama,
+        role: 'admin',
+      },
+    };
+  }
+
+  // 1. Check Master Gudang / Master Admin / Helpdesk PIN (21098 or 12345 or 123456789012)
+  if (
+    clean === DUMMY_MASTER.pin ||
+    clean === '21098' ||
+    clean === '12345' ||
+    clean === DUMMY_MASTER_HELPDESK.pin
+  ) {
+    return {
+      ok: true,
+      role: 'master_admin',
+      actor: {
+        id: DUMMY_MASTER.id,
+        nama: DUMMY_MASTER.nama,
         role: 'master_admin',
       },
     };
@@ -120,14 +165,13 @@ export function verifyExportPin(pin: string): ExportAuthResult {
       ok: true,
       role: 'admin',
       actor: {
-        id: DUMMY_ADMIN.id, // ADM-001
-        nama: DUMMY_ADMIN.nama, // Admin Dummy
+        id: DUMMY_ADMIN.id,
+        nama: DUMMY_ADMIN.nama,
         role: 'admin',
       },
     };
   }
 
-  // Admin Gudang (ADMG-001) cannot export all reports or audit trail.
   // Any mismatch yields generic security message:
   return {
     ok: false,

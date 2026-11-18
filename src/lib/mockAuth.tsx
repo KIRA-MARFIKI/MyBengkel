@@ -13,6 +13,12 @@ import {
   DEFAULT_HELPDESK_EMAIL,
   SEED_ACCOUNTS,
   generateCode,
+  deriveFiveDigitPin,
+  getManagedAccounts,
+  getDeletedAccountEmails,
+  upsertManagedAccount,
+  formatRoleBadgeLabel,
+  getRoleDisplayName,
 } from './mockCredentials';
 import { recordAuditEvent } from '../context/AdminContext';
 import { supabase } from './supabase';
@@ -27,6 +33,9 @@ export {
   DEFAULT_HELPDESK_EMAIL,
   SEED_ACCOUNTS,
   generateCode,
+  deriveFiveDigitPin,
+  formatRoleBadgeLabel,
+  getRoleDisplayName,
 };
 
 export type UserRole = 'admin' | 'master_admin' | 'customer' | 'master_helpdesk' | null;
@@ -38,6 +47,8 @@ export interface MockUserProfile {
   email: string;
   password?: string;
   pin?: string;
+  pin5?: string;
+  roleCode?: string;
   name?: string;
   phone?: string;
   plate?: string;
@@ -232,11 +243,70 @@ export const authenticateCredentials = (
   const cleanEmail = email.trim().toLowerCase();
   const cleanPin = pin.trim();
 
+  // Check if account was deleted by Master Helpdesk
+  const deletedEmails = getDeletedAccountEmails();
+  if (deletedEmails.includes(cleanEmail)) {
+    return {
+      ok: false,
+      error: 'Akun ini telah dihapus oleh administrator.',
+    };
+  }
+
+  // 0. Check Managed Accounts Registry (includes Supabase synced + Helpdesk CRUD edits)
+  const managedAccounts = getManagedAccounts();
+  const managedMatch = managedAccounts.find(
+    (acc) => acc.email.trim().toLowerCase() === cleanEmail
+  );
+  if (managedMatch) {
+    const pwOk = managedMatch.password === password;
+    const pinOk =
+      cleanPin === managedMatch.pin12 ||
+      (managedMatch.pin5 && cleanPin === managedMatch.pin5) ||
+      (managedMatch.role !== 'customer' &&
+        (cleanPin === deriveFiveDigitPin(managedMatch.pin12) || cleanPin === DUMMY_ADMIN_PIN));
+
+    if (!pwOk || !pinOk) {
+      return {
+        ok: false,
+        error: 'Email, kata sandi, atau PIN tidak sesuai.',
+      };
+    }
+
+    const normalizedRole: 'admin' | 'master_admin' | 'customer' | 'master_helpdesk' =
+      managedMatch.role === 'master_admin' || managedMatch.role === 'master_gudang'
+        ? 'master_admin'
+        : managedMatch.role === 'master_helpdesk'
+        ? 'master_helpdesk'
+        : managedMatch.role === 'admin' || managedMatch.role === 'admin_gudang'
+        ? 'admin'
+        : 'customer';
+
+    const customers = getRegisteredCustomersList();
+    const customerExtra =
+      normalizedRole === 'customer'
+        ? customers.find((c) => c.email.trim().toLowerCase() === cleanEmail)
+        : undefined;
+
+    return {
+      ok: true,
+      role: normalizedRole,
+      profile: {
+        ...(customerExtra || {}),
+        email: managedMatch.email,
+        name: managedMatch.nama,
+        roleCode: managedMatch.roleCode,
+        pin: managedMatch.pin12,
+        pin5: managedMatch.pin5 || deriveFiveDigitPin(managedMatch.pin12),
+        phone: managedMatch.phone || customerExtra?.phone,
+      },
+    };
+  }
+
   // 1. Check Master Helpdesk (Official requested account + legacy fallback)
   if (
     cleanEmail === SEED_ACCOUNTS.helpdesk.email.toLowerCase() &&
     password === SEED_ACCOUNTS.helpdesk.password &&
-    cleanPin === SEED_ACCOUNTS.helpdesk.pin
+    (cleanPin === SEED_ACCOUNTS.helpdesk.pin || cleanPin === SEED_ACCOUNTS.helpdesk.pin5)
   ) {
     return {
       ok: true,
@@ -244,13 +314,15 @@ export const authenticateCredentials = (
       profile: {
         email: SEED_ACCOUNTS.helpdesk.email,
         name: SEED_ACCOUNTS.helpdesk.nama,
+        roleCode: SEED_ACCOUNTS.helpdesk.id,
+        pin5: SEED_ACCOUNTS.helpdesk.pin5,
       },
     };
   }
   if (cleanEmail === DEFAULT_HELPDESK_EMAIL.toLowerCase()) {
     if (
       password === DUMMY_MASTER_HELPDESK.password &&
-      cleanPin === DUMMY_MASTER_HELPDESK.pin
+      (cleanPin === DUMMY_MASTER_HELPDESK.pin || cleanPin === DUMMY_MASTER_HELPDESK.pin5)
     ) {
       return {
         ok: true,
@@ -258,6 +330,8 @@ export const authenticateCredentials = (
         profile: {
           email: DEFAULT_HELPDESK_EMAIL,
           name: DUMMY_MASTER_HELPDESK.nama,
+          roleCode: DUMMY_MASTER_HELPDESK.id,
+          pin5: DUMMY_MASTER_HELPDESK.pin5,
         },
       };
     }
@@ -271,7 +345,7 @@ export const authenticateCredentials = (
   if (
     cleanEmail === SEED_ACCOUNTS.masterAdmin.email.toLowerCase() &&
     password === SEED_ACCOUNTS.masterAdmin.password &&
-    cleanPin === SEED_ACCOUNTS.masterAdmin.pin
+    (cleanPin === SEED_ACCOUNTS.masterAdmin.pin || cleanPin === SEED_ACCOUNTS.masterAdmin.pin5)
   ) {
     return {
       ok: true,
@@ -279,6 +353,8 @@ export const authenticateCredentials = (
       profile: {
         email: SEED_ACCOUNTS.masterAdmin.email,
         name: SEED_ACCOUNTS.masterAdmin.nama,
+        roleCode: SEED_ACCOUNTS.masterAdmin.id,
+        pin5: SEED_ACCOUNTS.masterAdmin.pin5,
       },
     };
   }
@@ -287,7 +363,7 @@ export const authenticateCredentials = (
   if (
     cleanEmail === SEED_ACCOUNTS.admin.email.toLowerCase() &&
     password === SEED_ACCOUNTS.admin.password &&
-    cleanPin === SEED_ACCOUNTS.admin.pin
+    (cleanPin === SEED_ACCOUNTS.admin.pin || cleanPin === SEED_ACCOUNTS.admin.pin5)
   ) {
     return {
       ok: true,
@@ -295,6 +371,8 @@ export const authenticateCredentials = (
       profile: {
         email: SEED_ACCOUNTS.admin.email,
         name: SEED_ACCOUNTS.admin.nama,
+        roleCode: SEED_ACCOUNTS.admin.id,
+        pin5: SEED_ACCOUNTS.admin.pin5,
       },
     };
   }
@@ -307,14 +385,16 @@ export const authenticateCredentials = (
     if (
       cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() &&
       password === DUMMY_ADMIN_PASSWORD &&
-      (cleanPin === DUMMY_ADMIN_LOGIN_PIN || cleanPin === DUMMY_ADMIN_PIN)
+      (cleanPin === DUMMY_ADMIN_LOGIN_PIN || cleanPin === DUMMY_ADMIN_PIN || cleanPin === DUMMY_ADMIN.pin5)
     ) {
       return {
         ok: true,
         role: 'admin',
         profile: {
           email: DEFAULT_ADMIN_EMAIL,
-          name: 'Admin Bengkel',
+          name: 'Admin MyBengkel',
+          roleCode: SEED_ACCOUNTS.admin.id,
+          pin5: SEED_ACCOUNTS.admin.pin5,
         },
       };
     }
@@ -355,6 +435,7 @@ export const authenticateCredentials = (
       profile: {
         email: email.trim(),
         name: fallback?.name || email.trim().split('@')[0],
+        roleCode: fallback?.roleCode || 'CS-001',
         plate: fallback?.plate || '',
         engineNo: fallback?.engineNo || '',
         frameNo: fallback?.frameNo || '',
@@ -778,6 +859,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data?.email) {
         resolvedEmail = String(data.email).trim().toLowerCase();
       }
+      const computedPin5 = (data?.pin_5 as string) || deriveFiveDigitPin(cleanPin);
+      const returnedRoleCode = data?.role_code as string | undefined;
+
+      if (resolvedEmail || user?.email) {
+        const emailKey = (resolvedEmail || user?.email || '').trim().toLowerCase();
+        const roleForAcc =
+          currentRole === 'master_admin' || currentRole === 'master_helpdesk' || currentRole === 'admin'
+            ? currentRole
+            : 'admin';
+        const acc = upsertManagedAccount({
+          email: emailKey,
+          role: roleForAcc,
+          roleCode: returnedRoleCode,
+          nama: user?.name || getRoleDisplayName(roleForAcc),
+          pin12: cleanPin,
+          pin5: computedPin5,
+        });
+        const nextUser: MockUserProfile = {
+          ...(user || { email: emailKey }),
+          email: emailKey,
+          pin: cleanPin,
+          pin5: acc.pin5,
+          roleCode: acc.roleCode,
+        };
+        setUser(nextUser);
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+        }
+      }
     } catch {
       // safe fallback
     }
@@ -948,11 +1058,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = (asRole: UserRole = 'admin', profile?: Partial<MockUserProfile>) => {
     const registered = getRegisteredCustomer();
+    const managedList = getManagedAccounts();
+    const targetEmail = (profile?.email || '').trim().toLowerCase();
+    const managedMatch = targetEmail
+      ? managedList.find((acc) => acc.email.trim().toLowerCase() === targetEmail)
+      : undefined;
+
     const nextUser: MockUserProfile =
       asRole === 'customer'
         ? {
           email: profile?.email || registered?.email || 'pelanggan@contoh.com',
           name: profile?.name ?? registered?.name ?? '',
+          roleCode: profile?.roleCode || managedMatch?.roleCode || registered?.roleCode || 'CS-001',
+          pin5: profile?.pin5 || managedMatch?.pin5 || deriveFiveDigitPin(profile?.pin || registered?.pin || ''),
           phone: profile?.phone ?? registered?.phone ?? '',
           plate: profile?.plate ?? registered?.plate ?? '',
           engineNo: profile?.engineNo ?? registered?.engineNo ?? '',
@@ -965,15 +1083,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? {
             email: profile?.email || SEED_ACCOUNTS.helpdesk.email,
             name: profile?.name || SEED_ACCOUNTS.helpdesk.nama,
+            roleCode: profile?.roleCode || managedMatch?.roleCode || SEED_ACCOUNTS.helpdesk.id,
+            pin5: profile?.pin5 || managedMatch?.pin5 || SEED_ACCOUNTS.helpdesk.pin5,
           }
           : asRole === 'master_admin'
             ? {
               email: profile?.email || SEED_ACCOUNTS.masterAdmin.email,
               name: profile?.name || SEED_ACCOUNTS.masterAdmin.nama,
+              roleCode: profile?.roleCode || managedMatch?.roleCode || SEED_ACCOUNTS.masterAdmin.id,
+              pin5: profile?.pin5 || managedMatch?.pin5 || SEED_ACCOUNTS.masterAdmin.pin5,
             }
             : {
               email: profile?.email || SEED_ACCOUNTS.admin.email,
               name: profile?.name || SEED_ACCOUNTS.admin.nama,
+              roleCode: profile?.roleCode || managedMatch?.roleCode || SEED_ACCOUNTS.admin.id,
+              pin5: profile?.pin5 || managedMatch?.pin5 || SEED_ACCOUNTS.admin.pin5,
             };
 
     setIsLoggedIn(Boolean(asRole));
@@ -996,7 +1120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (asRole === 'admin') {
       try {
         recordAuditEvent({
-          actorId: 'ADM-001',
+          actorId: nextUser.roleCode || SEED_ACCOUNTS.admin.id,
           actorName: nextUser.name || 'Admin MyBengkel',
           actorRole: 'admin',
           event: 'auth_login_success',
@@ -1013,13 +1137,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else if (asRole === 'master_admin') {
       try {
         recordAuditEvent({
-          actorId: 'MA-001',
-          actorName: nextUser.name || 'Master Admin MyBengkel',
+          actorId: nextUser.roleCode || SEED_ACCOUNTS.masterAdmin.id,
+          actorName: nextUser.name || 'Master Gudang MyBengkel',
           actorRole: 'master_admin',
           event: 'auth_login_success',
           category: 'akses',
           module: 'auth',
-          action: 'Login ke Aplikasi Master Admin',
+          action: 'Login ke Aplikasi Master Gudang',
           entityType: 'Auth',
           entityId: 'AUTH-LOGIN-MA',
           outcome: 'berhasil',
@@ -1030,7 +1154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else if (asRole === 'master_helpdesk') {
       try {
         recordAuditEvent({
-          actorId: 'HD-001',
+          actorId: nextUser.roleCode || SEED_ACCOUNTS.helpdesk.id,
           actorName: nextUser.name || 'Master Helpdesk MyBengkel',
           actorRole: 'master_helpdesk',
           event: 'auth_login_success',
@@ -1048,21 +1172,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const registerCustomer = (profile: MockUserProfile) => {
+    const managed = upsertManagedAccount({
+      email: profile.email,
+      role: 'customer',
+      nama: profile.name || profile.email.split('@')[0],
+      password: profile.password || '',
+      pin12: profile.pin || '',
+      pin5: deriveFiveDigitPin(profile.pin || '') || profile.pin || '',
+      phone: profile.phone,
+    });
+    const enrichedProfile: MockUserProfile = {
+      ...profile,
+      roleCode: managed.roleCode,
+      pin5: managed.pin5,
+    };
     if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.setItem(REGISTERED_CUSTOMER_KEY, JSON.stringify(profile));
+        localStorage.setItem(REGISTERED_CUSTOMER_KEY, JSON.stringify(enrichedProfile));
         const existing = getRegisteredCustomersList().filter(
-          (c) => c.email.trim().toLowerCase() !== profile.email.trim().toLowerCase()
+          (c) => c.email.trim().toLowerCase() !== enrichedProfile.email.trim().toLowerCase()
         );
         localStorage.setItem(
           REGISTERED_CUSTOMERS_LIST_KEY,
-          JSON.stringify([profile, ...existing])
+          JSON.stringify([enrichedProfile, ...existing])
         );
       } catch {
         // Ignore storage errors
       }
     }
-    login('customer', profile);
+    login('customer', enrichedProfile);
   };
 
   const updateUserProfile = (updated: Partial<MockUserProfile>) => {
@@ -1172,7 +1310,7 @@ export const useAuth = (): AuthContextType => {
   return context;
 };
 
-// Route guard: requireRole("admin" | "master_admin") for every regular operational /admin route
+// Route guard: allow shared access for "admin", "master_admin", and "master_helpdesk"
 export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, role } = useAuth();
   const location = useLocation();
@@ -1181,12 +1319,7 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
-  // If a Master Helpdesk attempts to access non-helpdesk admin operations, redirect to Helpdesk Center
-  if (role === 'master_helpdesk') {
-    return <Navigate to="/admin/helpdesk" replace />;
-  }
-
-  if (role !== 'admin' && role !== 'master_admin') {
+  if (role !== 'admin' && role !== 'master_admin' && role !== 'master_helpdesk') {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 

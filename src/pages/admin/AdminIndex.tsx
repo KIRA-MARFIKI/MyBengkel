@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useGSAP } from '@gsap/react';
 import { gsap } from '../../lib/gsap';
 import { useAdmin } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import { useActionCounts } from '../../lib/actionCounts';
 import type { Booking } from '../../data/adminDummy';
 import { KpiCard } from '../../components/admin/KpiCard';
@@ -20,8 +21,10 @@ let hasPlayedAdminIndexEntrance = false;
 
 const AdminIndex: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const { bookings, serviceForms } = useAdmin();
   const counts = useActionCounts();
+  const canExecuteServis = role === 'admin';
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [bookingFilter, setBookingFilter] = useState<string>('Semua');
@@ -52,17 +55,23 @@ const AdminIndex: React.FC = () => {
       count: counts.booking,
       to: '/admin/v1/booking?status=menunggu',
     },
-    {
-      label: 'Service Form menunggu persetujuan',
-      count: counts.serviceForm,
-      to: '/admin/v1/service-forms?tab=menunggu_persetujuan',
-    },
+    ...(canExecuteServis
+      ? [
+          {
+            label: 'Service Form menunggu persetujuan',
+            count: counts.serviceForm,
+            to: '/admin/v1/service-forms?tab=menunggu_persetujuan',
+          },
+        ]
+      : []),
     {
       label: 'Part di bawah stok minimum',
       count: counts.lowStock,
       to: '/admin/v2/warehouse?view=part&filter=low',
     },
-    { label: 'Tiket Help Desk terbuka', count: counts.ticket, to: '/admin/helpdesk' },
+    ...(role === 'master_helpdesk'
+      ? [{ label: 'Tiket Help Desk terbuka', count: counts.ticket, to: '/admin/helpdesk' }]
+      : []),
   ];
 
   useGSAP(
@@ -153,7 +162,7 @@ const AdminIndex: React.FC = () => {
           />
 
           <KpiCard
-            to="/admin/v1/service-forms?tab=menunggu_persetujuan"
+            to={canExecuteServis ? '/admin/v1/service-forms?tab=menunggu_persetujuan' : '/admin/v1/booking'}
             value={counts.serviceForm}
             label="Service Form menunggu"
             color="#F2466F"
@@ -181,7 +190,7 @@ const AdminIndex: React.FC = () => {
           />
 
           <KpiCard
-            to="/admin/helpdesk"
+            to={role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin/laporan'}
             value={counts.ticket}
             label="Tiket terbuka"
             color="#FFBD59"
@@ -218,8 +227,8 @@ const AdminIndex: React.FC = () => {
                     ? 'Belum ada booking hari ini.'
                     : `Tidak ada booking pada tab ini hari ini.`
                 }
-                actionText="Tambah booking"
-                onAction={() => navigate('/admin/v1/booking?new=1')}
+                actionText={canExecuteServis ? 'Tambah booking' : undefined}
+                onAction={canExecuteServis ? () => navigate('/admin/v1/booking?new=1') : undefined}
               />
             ) : (
               <DataTable
@@ -237,10 +246,14 @@ const AdminIndex: React.FC = () => {
             actions={
               <ThreeDotMenu
                 ariaLabel="Opsi Service Form"
-                actions={[
-                  { label: 'Buka Service Form', onClick: () => navigate('/admin/v1/service-forms') },
-                  { label: 'Lihat laporan', onClick: () => navigate('/admin/laporan/servis') },
-                ]}
+                actions={
+                  canExecuteServis
+                    ? [
+                        { label: 'Buka Service Form', onClick: () => navigate('/admin/v1/service-forms') },
+                        { label: 'Lihat laporan', onClick: () => navigate('/admin/laporan/servis') },
+                      ]
+                    : [{ label: 'Lihat laporan', onClick: () => navigate('/admin/laporan/servis') }]
+                }
               />
             }
           >

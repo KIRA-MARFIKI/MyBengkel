@@ -47,8 +47,9 @@ const V1Attendance: React.FC = () => {
     addAttendanceCheckIn,
     updateAttendance,
   } = useAdmin();
-  const { adminEmail } = useAuth();
+  const { adminEmail, role } = useAuth();
   const { notifyAction } = useActionIsland();
+  const canExecuteServis = role === 'admin';
 
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
   const [isListOpen, setIsListOpen] = useState<boolean>(false);
@@ -367,6 +368,9 @@ const V1Attendance: React.FC = () => {
       header: 'Aksi',
       render: (m) => {
         const rec = getRecord(m.id);
+        if (!canExecuteServis) {
+          return <span className="text-[12px] text-[#646B7C]">Mode pantau</span>;
+        }
         if (!rec?.checkIn) {
           return (
             <ActionButton intent="start" onClick={() => handleCheckIn(m.id)}>
@@ -438,11 +442,17 @@ const V1Attendance: React.FC = () => {
         widthClass="max-w-[640px]"
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <ActionButton intent="start" onClick={handleOpenNewMechanicGate}>
-              Mekanik baru
-            </ActionButton>
-          </div>
+          {canExecuteServis ? (
+            <div className="flex items-center justify-between gap-3">
+              <ActionButton intent="start" onClick={handleOpenNewMechanicGate}>
+                Mekanik baru
+              </ActionButton>
+            </div>
+          ) : (
+            <p className="text-[12px] font-medium text-[#646B7C]">
+              Mode pantau (Read-only): Hanya Admin yang dapat menambah atau menghapus data mekanik.
+            </p>
+          )}
 
           {deleteBlockError && (
             <div
@@ -460,14 +470,24 @@ const V1Attendance: React.FC = () => {
                   <th className="py-2.5 px-3 admin-micro whitespace-nowrap rounded-l-[12px]">ID Mekanik</th>
                   <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Nama Mekanik</th>
                   <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Nomor HP</th>
-                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap">Alamat</th>
-                  <th className="py-2.5 px-3 admin-micro whitespace-nowrap text-right rounded-r-[12px]">Aksi</th>
+                  <th
+                    className={`py-2.5 px-3 admin-micro whitespace-nowrap ${
+                      !canExecuteServis ? 'rounded-r-[12px]' : ''
+                    }`}
+                  >
+                    Alamat
+                  </th>
+                  {canExecuteServis && (
+                    <th className="py-2.5 px-3 admin-micro whitespace-nowrap text-right rounded-r-[12px]">
+                      Aksi
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {activeMechanics.length === 0 ? (
                   <tr className="border-b border-[#EEF0F4]">
-                    <td colSpan={5} className="py-4 text-center text-[#646B7C]">
+                    <td colSpan={canExecuteServis ? 5 : 4} className="py-4 text-center text-[#646B7C]">
                       Belum ada mekanik aktif.
                     </td>
                   </tr>
@@ -480,13 +500,15 @@ const V1Attendance: React.FC = () => {
                       <td className="px-3 font-medium text-[#1E2230]">{m.nama}</td>
                       <td className="px-3 font-mono text-[#1E2230] tabular-nums">{m.hp}</td>
                       <td className="px-3 text-[#646B7C]">{m.alamat}</td>
-                      <td className="px-3 text-right">
-                        <XIconButton
-                          ariaLabel={`Hapus mekanik ${m.nama}`}
-                          title={`Hapus mekanik ${m.nama}`}
-                          onClick={(e) => handleClickDeleteMechanic(m, e)}
-                        />
-                      </td>
+                      {canExecuteServis && (
+                        <td className="px-3 text-right">
+                          <XIconButton
+                            ariaLabel={`Hapus mekanik ${m.nama}`}
+                            title={`Hapus mekanik ${m.nama}`}
+                            onClick={(e) => handleClickDeleteMechanic(m, e)}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}

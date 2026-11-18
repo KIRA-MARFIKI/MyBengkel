@@ -7,6 +7,7 @@ import {
   undoReceive,
   useAdmin,
 } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import {
   Part,
   PurchaseRequest,
@@ -111,8 +112,10 @@ export function hasReceivedLineForPart(
 
 const V2Warehouse: React.FC = () => {
   const [params, setParams] = useSearchParams();
+  const { role } = useAuth();
   const { parts, stockMovements, purchaseRequests } = useAdmin();
   const { notify } = useActionIsland();
+  const canExecuteWarehouse = role === 'master_admin';
 
   const initialTabParam = params.get('tab');
   const initialTab: WarehouseTab =
@@ -518,6 +521,9 @@ const V2Warehouse: React.FC = () => {
         if (row.line.lineState !== 'belum') {
           return null;
         }
+        if (!canExecuteWarehouse) {
+          return <span className="text-[12px] text-[#646B7C]">Menunggu Master Gudang</span>;
+        }
         const partName = row.part?.nama || row.line.partId;
         return (
           <div
@@ -624,6 +630,9 @@ const V2Warehouse: React.FC = () => {
       header: 'Aksi',
       align: 'right',
       render: (r) => {
+        if (!canExecuteWarehouse) {
+          return <span className="text-[12px] text-[#646B7C]">Menunggu Master Gudang</span>;
+        }
         const orderCode = r.orderCode || r.id;
         return (
           <div

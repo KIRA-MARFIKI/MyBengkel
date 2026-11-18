@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../lib/mockAuth';
+import { useAuth, formatRoleBadgeLabel } from '../lib/mockAuth';
 import { useActionCounts } from '../lib/actionCounts';
 import { ActionButton } from '../components/admin/ActionButton';
 import { CommandPalette } from '../components/admin/CommandPalette';
@@ -116,8 +116,12 @@ const AdminShell: React.FC = () => {
   const isPrivileged = role === 'admin' || role === 'master_admin' || role === 'master_helpdesk';
   const showSecurityModal = isPrivileged && securitySetup.mustCompleteSetup;
   const visibleTopItems = isHelpdeskOnly
-    ? TOP_ITEMS.filter((item) => item.id === 'helpdesk')
-    : TOP_ITEMS;
+    ? TOP_ITEMS
+    : TOP_ITEMS.filter((item) => item.id !== 'helpdesk');
+  const resolvedRoleCode =
+    user?.roleCode ||
+    (role === 'master_helpdesk' ? 'HD-001' : role === 'master_admin' ? 'MG-001' : 'AD-001');
+  const roleBadgeLabel = formatRoleBadgeLabel(role, resolvedRoleCode);
   const navigate = useNavigate();
   const location = useLocation();
   const counts = useActionCounts();
@@ -134,7 +138,18 @@ const AdminShell: React.FC = () => {
   const isV1 = location.pathname.startsWith('/admin/v1');
   const isV2 = activeTop === 'gudang';
   const isLaporan = location.pathname.startsWith('/admin/laporan');
-  const subTabs = isV1 ? V1_TABS : isV2 ? V2_TABS : isLaporan ? LAPORAN_TABS : [];
+  const rawSubTabs = isV1 ? V1_TABS : isV2 ? V2_TABS : isLaporan ? LAPORAN_TABS : [];
+  const subTabs = rawSubTabs.filter((t) => {
+    // Master Admin / Master Gudang and Master Helpdesk must NOT see Service Form
+    if (isV1 && role !== 'admin' && t.path === '/admin/v1/service-forms') {
+      return false;
+    }
+    // Admin only has view + request access in Gudang (no Input Manual write adjustment tab)
+    if (isV2 && role === 'admin' && t.path === '/admin/v2/manual-entries') {
+      return false;
+    }
+    return true;
+  });
 
   useEffect(() => {
     resetBodyScrollIfIdle();
@@ -220,7 +235,7 @@ const AdminShell: React.FC = () => {
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-medium text-[#646B7C] leading-none truncate">
-                MyBengkel
+                {roleBadgeLabel}
               </div>
               <div className="text-[15px] font-semibold text-[#1E2230] leading-tight truncate mt-0.5">
                 {activeTopItem?.label || 'Dashboard'}
@@ -258,50 +273,54 @@ const AdminShell: React.FC = () => {
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto bg-white rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.08)] border border-[#EEF0F4]">
-            {!isHelpdeskOnly && (
-              <Link
-                to="/admin"
-                aria-label={bellLabel}
-                title={bellLabel}
-                className="relative inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path
-                    d="M10 2.5C7.1 2.5 4.8 4.8 4.8 7.7V11.3L3.2 13.3V14.4H16.8V13.3L15.2 11.3V7.7C15.2 4.8 12.9 2.5 10 2.5Z"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinejoin="round"
-                  />
-                  <path d="M8.2 15C8.5 16 9.2 16.6 10 16.6C10.8 16.6 11.5 16 11.8 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-                <data
-                  value={counts.total}
-                  aria-hidden="true"
-                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F2466F] text-white font-sans text-[11px] font-semibold flex items-center justify-center leading-none tabular-nums"
-                >
-                  <RollingNumber value={counts.total} />
-                </data>
-              </Link>
-            )}
+            <span className="hidden lg:inline-flex items-center px-2.5 py-1 rounded-full bg-[#F6F7FA] border border-[#EEF0F4] text-[11px] font-semibold text-[#1E2230] whitespace-nowrap">
+              {roleBadgeLabel}
+            </span>
 
             <Link
-              to="/admin/helpdesk"
-              aria-label={ticketLabel}
-              title={ticketLabel}
+              to="/admin"
+              aria-label={bellLabel}
+              title={bellLabel}
               className="relative inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M3 5L10 10.5L17 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M10 2.5C7.1 2.5 4.8 4.8 4.8 7.7V11.3L3.2 13.3V14.4H16.8V13.3L15.2 11.3V7.7C15.2 4.8 12.9 2.5 10 2.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+                <path d="M8.2 15C8.5 16 9.2 16.6 10 16.6C10.8 16.6 11.5 16 11.8 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
               <data
-                value={counts.ticket}
+                value={counts.total}
                 aria-hidden="true"
                 className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F2466F] text-white font-sans text-[11px] font-semibold flex items-center justify-center leading-none tabular-nums"
               >
-                <RollingNumber value={counts.ticket} />
+                <RollingNumber value={counts.total} />
               </data>
             </Link>
+
+            {isHelpdeskOnly && (
+              <Link
+                to="/admin/helpdesk"
+                aria-label={ticketLabel}
+                title={ticketLabel}
+                className="relative inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 rounded-full text-[#646B7C] hover:text-[#1E2230] hover:bg-[#F6F7FA] no-underline transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M3 5L10 10.5L17 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <data
+                  value={counts.ticket}
+                  aria-hidden="true"
+                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F2466F] text-white font-sans text-[11px] font-semibold flex items-center justify-center leading-none tabular-nums"
+                >
+                  <RollingNumber value={counts.ticket} />
+                </data>
+              </Link>
+            )}
 
             <div ref={avatarWrapRef} className="relative">
               <button
@@ -322,7 +341,7 @@ const AdminShell: React.FC = () => {
               {avatarOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 z-50 min-w-[190px] bg-white rounded-[14px] border border-[#EEF0F4] shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-2 space-y-2"
+                  className="absolute right-0 top-full mt-2 z-50 min-w-[205px] bg-white rounded-[14px] border border-[#EEF0F4] shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-2 space-y-2"
                 >
                   <div className="px-2 py-1 border-b border-[#EEF0F4]">
                     <div className="text-xs font-semibold text-[#1E2230]">
@@ -338,11 +357,7 @@ const AdminShell: React.FC = () => {
                           : 'bg-[#FFBD59]/20 text-[#B45309]'
                       }`}
                     >
-                      {isHelpdeskOnly
-                        ? 'Master Helpdesk'
-                        : role === 'master_admin'
-                        ? 'Master Admin'
-                        : 'Administrator'}
+                      {roleBadgeLabel}
                     </span>
                   </div>
 
@@ -514,8 +529,8 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
                 isLastOdd ? 'col-span-2' : ''
               } ${
                 active
-                  ? 'bg-[#1E2230] text-white font-semibold shadow-xs'
-                  : 'bg-white text-[#646B7C] border border-[#D9DDE6] font-medium hover:text-[#1E2230]'
+                  ? 'bg-[#1E2230] text-white border border-[#1E2230] font-semibold shadow-sm'
+                  : 'bg-white text-[#1E2230] border border-[#D9DDE6] font-medium hover:bg-[#F6F7FA]'
               }`}
             >
               <span className="truncate">{t.label}</span>
@@ -537,8 +552,8 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
               aria-current={active ? 'page' : undefined}
               className={`admin-tab-btn relative z-10 ${
                 active
-                  ? 'text-white bg-transparent border border-transparent'
-                  : 'admin-tab-inactive'
+                  ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+                  : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
               }`}
             >
               <span data-island-label className="relative z-10">

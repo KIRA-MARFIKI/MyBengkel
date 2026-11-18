@@ -1,6 +1,24 @@
-import React, { useState, useMemo } from 'react';
-import { useAdmin } from '../../context/AdminContext';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  useAdmin,
+  pushSharedWorkshopStateToSupabase,
+  recordAuditEvent,
+} from '../../context/AdminContext';
 import { useAuth } from '../../lib/mockAuth';
+import { supabase } from '../../lib/supabase';
+import {
+  deriveFiveDigitPin,
+  getRoleDisplayName,
+  formatRoleBadgeLabel,
+  getManagedAccounts,
+  getDeletedAccountEmails,
+  getNextRoleCodeForAccounts,
+  saveManagedAccounts,
+  upsertManagedAccount,
+  removeManagedAccount,
+  type ManagedAccountRecord,
+  type ManagedAccountRole,
+} from '../../lib/mockCredentials';
 import type {
   HelpDeskTicket,
   TicketPriority,
@@ -17,9 +35,16 @@ import { ActionButton } from '../../components/admin/ActionButton';
 import { SidePanel } from '../../components/admin/SidePanel';
 import { CenterDialog } from '../../components/admin/CenterDialog';
 import { FormField } from '../../components/admin/FormField';
-import { setLastTriggerElement } from '../../components/admin/island/IslandSystem';
+import { setLastTriggerElement, useActionIsland } from '../../components/admin/island/IslandSystem';
 
-type HelpdeskTab = 'overview' | 'tickets' | 'diagnostics' | 'corrections' | 'knowledge' | 'audit';
+type HelpdeskTab =
+  | 'overview'
+  | 'accounts'
+  | 'tickets'
+  | 'diagnostics'
+  | 'corrections'
+  | 'knowledge'
+  | 'audit';
 
 const CATEGORIES: TicketCategory[] = [
   'Bug / Kendala Aplikasi',
@@ -63,10 +88,374 @@ export const HelpDeskCenter: React.FC = () => {
   } = useAdmin();
 
   const { role, user } = useAuth();
+  const { notify } = useActionIsland();
   const isMasterAdmin = role === 'admin';
+  const canManageAccounts = role === 'master_helpdesk';
 
   // Active sub-tab in Helpdesk Center
   const [activeTab, setActiveTab] = useState<HelpdeskTab>('overview');
+
+  // -------------------------------------------------------------
+  // HELPDESK ACCOUNT & ACCESS CRUD STATE
+  // -------------------------------------------------------------
+  const [accounts, setAccounts] = useState<ManagedAccountRecord[]>(() => getManagedAccounts());
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState('');
+  const [accountRoleFilter, setAccountRoleFilter] = useState<string>('Semua');
+  const [accountSearch, setAccountSearch] = useState('');
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
+  const [copiedSecretKey, setCopiedSecretKey] = useState<string | null>(null);
+
+  // Add / Edit Account Modal State
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<ManagedAccountRecord | null>(null);
+  const [accFormName, setAccFormName] = useState('');
+  const [accFormEmail, setAccFormEmail] = useState('');
+  const [accFormRole, setAccFormRole] = useState<ManagedAccountRole>('admin');
+  const [accFormRoleCode, setAccFormRoleCode] = useState('');
+  const [accFormPassword, setAccFormPassword] = useState('');
+  const [accFormShowPassword, setAccFormShowPassword] = useState(true);
+  const [accFormPin12, setAccFormPin12] = useState('123456789012');
+  const [accFormSendEmail, setAccFormSendEmail] = useState(true);
+  const [accFormError, setAccFormError] = useState('');
+  const [accFormSaving, setAccFormSaving] = useState(false);
+
+  // Delete Account Modal State
+  const [deleteTarget, setDeleteTarget] = useState<ManagedAccountRecord | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const loadAccountsFromServer = useCallback(async () => {
+    const localList = getManagedAccounts();
+    setAccounts(localList);
+    if (!canManageAccounts) return;
+
+    setAccountsLoading(true);
+    setAccountsError('');
+    try {
+      const { data, error } = await supabase.rpc('helpdesk_list_accounts');
+      if (error) {
+        setAccountsError(
+          `Menggunakan data lokal (sinkronisasi server tertunda: ${error.message}).`
+        );
+        return;
+      }
+
+      const rawList = Array.isArray((data as any)?.accounts) ? ((data as any).accounts as any[]) : [];
+      const deletedSet = new Set(getDeletedAccountEmails());
+      const mergedMap = new Map<string, ManagedAccountRecord>();
+
+      for (const item of localList) {
+        mergedMap.set(item.email.toLowerCase().trim(), item);
+      }
+
+      for (const remote of rawList) {
+        const email = String(remote?.email || '').trim().toLowerCase();
+        if (!email || deletedSet.has(email)) continue;
+
+        const existing = mergedMap.get(email);
+        const normalizedRole = (String(remote?.role || existing?.role || 'customer')
+          .trim()
+          .toLowerCase() || 'customer') as ManagedAccountRole;
+
+        const currentListSnapshot = Array.from(mergedMap.values());
+        const remoteRoleCode = String(remote?.role_code || '').trim();
+        const resolvedRoleCode =
+          remoteRoleCode ||
+          existing?.roleCode ||
+          getNextRoleCodeForAccounts(normalizedRole, currentListSnapshot);
+
+        const resolvedPin12 = String(remote?.pin_12 || existing?.pin12 || '')
+          .replace(/\D/g, '');
+        const resolvedPin5 =
+          String(remote?.pin_5 || '').replace(/\D/g, '') ||
+          deriveFiveDigitPin(resolvedPin12) ||
+          existing?.pin5 ||
+          '';
+
+        mergedMap.set(email, {
+          id: existing?.id || `acc-${String(remote?.user_id || email).slice(0, 12)}`,
+          userId: String(remote?.user_id || existing?.userId || '') || undefined,
+          roleCode: resolvedRoleCode,
+          role: normalizedRole,
+          nama: String(remote?.full_name || existing?.nama || email.split('@')[0]).trim(),
+          email,
+          password: String(remote?.plaintext_password || existing?.password || '-'),
+          pin12: resolvedPin12,
+          pin5: resolvedPin5,
+          phone: existing?.phone,
+          updatedAt: String(remote?.created_at || existing?.updatedAt || new Date().toISOString()),
+        });
+      }
+
+      const mergedList = Array.from(mergedMap.values()).sort((a, b) =>
+        (a.roleCode || a.email).localeCompare(b.roleCode || b.email)
+      );
+      saveManagedAccounts(mergedList);
+      setAccounts(mergedList);
+    } catch (err: any) {
+      setAccountsError(
+        `Gagal menyinkronkan daftar akun dari Supabase: ${err?.message || 'Koneksi bermasalah'}.`
+      );
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, [canManageAccounts]);
+
+  useEffect(() => {
+    void loadAccountsFromServer();
+  }, [loadAccountsFromServer]);
+
+  const filteredAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase();
+    return accounts.filter((acc) => {
+      if (accountRoleFilter !== 'Semua') {
+        const r = acc.role.toLowerCase();
+        if (accountRoleFilter === 'admin' && r !== 'admin' && r !== 'admin_gudang') {
+          return false;
+        }
+        if (
+          accountRoleFilter === 'master_admin' &&
+          r !== 'master_admin' &&
+          r !== 'master_gudang'
+        ) {
+          return false;
+        }
+        if (accountRoleFilter === 'master_helpdesk' && r !== 'master_helpdesk') {
+          return false;
+        }
+        if (accountRoleFilter === 'mekanik' && r !== 'mekanik') {
+          return false;
+        }
+        if (accountRoleFilter === 'customer' && r !== 'customer') {
+          return false;
+        }
+      }
+      if (!q) return true;
+      return (
+        acc.roleCode.toLowerCase().includes(q) ||
+        acc.nama.toLowerCase().includes(q) ||
+        acc.email.toLowerCase().includes(q) ||
+        getRoleDisplayName(acc.role).toLowerCase().includes(q)
+      );
+    });
+  }, [accounts, accountRoleFilter, accountSearch]);
+
+  const handleCopySecret = async (key: string, value: string, label: string) => {
+    if (!value || value === '-') return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedSecretKey(key);
+      notify(`${label} disalin ke clipboard.`);
+      window.setTimeout(() => {
+        setCopiedSecretKey((cur) => (cur === key ? null : cur));
+      }, 1500);
+    } catch {
+      notify(`Gagal menyalin ${label}.`);
+    }
+  };
+
+  const openCreateAccountModal = () => {
+    setEditingAccount(null);
+    setAccFormName('');
+    setAccFormEmail('');
+    setAccFormRole('admin');
+    setAccFormRoleCode('');
+    setAccFormPassword('');
+    setAccFormShowPassword(true);
+    setAccFormPin12('123456789012');
+    setAccFormSendEmail(true);
+    setAccFormError('');
+    setAccountModalOpen(true);
+  };
+
+  const openEditAccountModal = (acc: ManagedAccountRecord) => {
+    setEditingAccount(acc);
+    setAccFormName(acc.nama);
+    setAccFormEmail(acc.email);
+    const normalizedRole =
+      acc.role === 'admin_gudang'
+        ? 'admin'
+        : acc.role === 'master_gudang'
+        ? 'master_admin'
+        : acc.role;
+    setAccFormRole(normalizedRole);
+    setAccFormRoleCode(acc.roleCode || '');
+    setAccFormPassword(acc.password === '-' ? '' : acc.password);
+    setAccFormShowPassword(true);
+    setAccFormPin12(acc.pin12 || '123456789012');
+    setAccFormSendEmail(false);
+    setAccFormError('');
+    setAccountModalOpen(true);
+  };
+
+  const handleSaveAccount = async () => {
+    const cleanName = accFormName.trim();
+    const cleanEmail = accFormEmail.trim().toLowerCase();
+    const cleanPin12 = accFormPin12.replace(/\D/g, '');
+    const cleanRoleCode = accFormRoleCode.trim().toUpperCase();
+
+    if (!cleanName) {
+      setAccFormError('Nama lengkap wajib diisi.');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setAccFormError('Format email tidak valid.');
+      return;
+    }
+    if (!editingAccount && accFormPassword.length < 6) {
+      setAccFormError('Password minimal 6 karakter untuk akun baru.');
+      return;
+    }
+    if (accFormPassword && accFormPassword.length > 0 && accFormPassword.length < 6) {
+      setAccFormError('Jika diisi, password minimal 6 karakter.');
+      return;
+    }
+    if (cleanPin12 && cleanPin12.length !== 12) {
+      setAccFormError('PIN Keamanan harus tepat 12 digit angka.');
+      return;
+    }
+
+    setAccFormSaving(true);
+    setAccFormError('');
+
+    let remoteUserId = editingAccount?.userId;
+    let resolvedRoleCode = cleanRoleCode;
+    let remoteSynced = false;
+
+    try {
+      const { data, error } = await supabase.rpc('helpdesk_upsert_account', {
+        p_target_user_id: editingAccount?.userId || null,
+        p_email: cleanEmail,
+        p_full_name: cleanName,
+        p_role: accFormRole,
+        p_password: accFormPassword || null,
+        p_pin_12: cleanPin12 || null,
+        p_role_code: cleanRoleCode || null,
+      });
+
+      if (!error && data) {
+        const res = data as any;
+        if (res.ok) {
+          remoteSynced = true;
+          if (res.user_id) remoteUserId = String(res.user_id);
+          if (res.role_code) resolvedRoleCode = String(res.role_code);
+        } else if (res.error) {
+          setAccFormError(String(res.error));
+          setAccFormSaving(false);
+          return;
+        }
+      }
+    } catch {
+      // Fallback to local managed registry + shared sync below
+    }
+
+    const saved = upsertManagedAccount({
+      id: editingAccount?.id,
+      userId: remoteUserId,
+      roleCode: resolvedRoleCode || undefined,
+      role: accFormRole,
+      nama: cleanName,
+      email: cleanEmail,
+      password: accFormPassword || editingAccount?.password || 'admin123',
+      pin12: cleanPin12 || editingAccount?.pin12 || '123456789012',
+      pin5: deriveFiveDigitPin(cleanPin12 || editingAccount?.pin12 || '123456789012'),
+    });
+
+    let emailStatusNote = '';
+    if (accFormSendEmail) {
+      try {
+        const { error: mailErr } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${window.location.origin}/login`,
+        });
+        emailStatusNote = mailErr
+          ? ' (Email reset terlewat karena batas laju SMTP; kredensial baru tetap aktif).'
+          : ' & notifikasi email dikirim.';
+      } catch {
+        emailStatusNote = ' (Notifikasi email tertunda).';
+      }
+    }
+
+    recordAuditEvent({
+      actorId: user?.roleCode || 'HD-001',
+      actorName: user?.name || 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: editingAccount ? 'helpdesk_account_updated' : 'helpdesk_account_created',
+      category: 'akses',
+      module: 'auth',
+      action: `${editingAccount ? 'Memperbarui' : 'Membuat'} akun ${saved.roleCode} (${cleanEmail}, role ${getRoleDisplayName(accFormRole)})`,
+      entityType: 'Account',
+      entityId: saved.roleCode,
+      outcome: 'berhasil',
+      metadata: {
+        remoteSynced,
+        emailNotificationRequested: accFormSendEmail,
+      },
+    });
+
+    await pushSharedWorkshopStateToSupabase();
+    setAccounts(getManagedAccounts());
+    setAccFormSaving(false);
+    setAccountModalOpen(false);
+    notify(
+      `Akun ${saved.roleCode} (${cleanEmail}) ${
+        editingAccount ? 'diperbarui' : 'ditambahkan'
+      }${emailStatusNote}`
+    );
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.email.toLowerCase() === (user?.email || '').toLowerCase()) {
+      setDeleteError('Tidak dapat menghapus akun yang sedang digunakan saat ini.');
+      return;
+    }
+
+    setDeleteSaving(true);
+    setDeleteError('');
+    let remoteDeleted = false;
+
+    try {
+      const { data, error } = await supabase.rpc('helpdesk_delete_account', {
+        p_target_user_id: deleteTarget.userId || null,
+        p_target_email: deleteTarget.email,
+      });
+      if (!error && (data as any)?.ok) {
+        remoteDeleted = true;
+      }
+    } catch {
+      // Safe fallback to local removal
+    }
+
+    const next = removeManagedAccount({
+      id: deleteTarget.id,
+      userId: deleteTarget.userId,
+      email: deleteTarget.email,
+    });
+
+    recordAuditEvent({
+      actorId: user?.roleCode || 'HD-001',
+      actorName: user?.name || 'Master Helpdesk',
+      actorRole: 'master_helpdesk',
+      event: 'helpdesk_account_deleted',
+      category: 'akses',
+      module: 'auth',
+      action: `Menghapus akun ${deleteTarget.roleCode} (${deleteTarget.email})`,
+      entityType: 'Account',
+      entityId: deleteTarget.roleCode,
+      outcome: 'berhasil',
+      metadata: { remoteDeleted },
+    });
+
+    await pushSharedWorkshopStateToSupabase();
+    setAccounts(next);
+    setDeleteSaving(false);
+    const removedCode = deleteTarget.roleCode;
+    const removedEmail = deleteTarget.email;
+    setDeleteTarget(null);
+    notify(`Akun ${removedCode} (${removedEmail}) telah dihapus.`);
+  };
 
   // -------------------------------------------------------------
   // TICKET MANAGEMENT STATE
@@ -505,18 +894,30 @@ export const HelpDeskCenter: React.FC = () => {
               Support Center
             </span>
             <span className="text-xs text-[#646B7C]">
-              Peran Aktif: <strong className="text-[#1E2230]">{role === 'master_helpdesk' ? 'Master Helpdesk' : 'Master Admin'}</strong>
+              Peran Aktif:{' '}
+              <strong className="text-[#1E2230]">
+                {formatRoleBadgeLabel(role, user?.roleCode)}
+              </strong>
             </span>
           </div>
           <h1 className="text-[24px] sm:text-[28px] font-condensed font-bold text-[#1E2230] leading-tight">
             Helpdesk Center
           </h1>
           <p className="text-sm text-[#646B7C] mt-1">
-            Pusat diagnosis, bantuan teknis, dan verifikasi perbaikan data terpadu MyBengkel.
+            Pusat diagnosis, manajemen akun & kredensial, bantuan teknis, dan verifikasi perbaikan data terpadu MyBengkel.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          {canManageAccounts && (
+            <ActionButton
+              intent="neutral"
+              onClick={() => setActiveTab('accounts')}
+              className="w-full sm:w-auto justify-center"
+            >
+              Manajemen Akun ({accounts.length})
+            </ActionButton>
+          )}
           <ActionButton
             intent="start"
             onClick={(e) => {
@@ -531,25 +932,38 @@ export const HelpDeskCenter: React.FC = () => {
       </div>
 
       {/* Main Tab Navigation */}
-      <div className="flex items-center gap-1.5 sm:gap-2 border-b border-[#D9DDE6] pb-1 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+      <div className="flex flex-wrap items-center gap-2 pb-1">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'overview'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Ringkasan
         </button>
+        {canManageAccounts && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('accounts')}
+            className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
+              activeTab === 'accounts'
+                ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+                : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
+            }`}
+          >
+            Manajemen Akun & Akses ({accounts.length})
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setActiveTab('tickets')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'tickets'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Manajemen Tiket ({tickets.length})
@@ -557,10 +971,10 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('diagnostics')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'diagnostics'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Ruang Diagnostik
@@ -568,10 +982,10 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('corrections')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'corrections'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Pemulihan & Koreksi ({correctionRequests.length})
@@ -579,10 +993,10 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('knowledge')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'knowledge'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Basis Pengetahuan ({knowledgeBase.length})
@@ -590,10 +1004,10 @@ export const HelpDeskCenter: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('audit')}
-          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-0 text-sm font-medium rounded-t-[10px] transition-colors whitespace-nowrap shrink-0 ${
+          className={`px-3.5 sm:px-4 py-2 min-h-[44px] md:min-h-[38px] text-sm rounded-[12px] transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'audit'
-              ? 'bg-white text-[#1E2230] border-t-2 border-[#1E2230] font-semibold shadow-sm'
-              : 'text-[#646B7C] hover:text-[#1E2230]'
+              ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+              : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
           }`}
         >
           Log Audit Helpdesk
@@ -750,6 +1164,307 @@ export const HelpDeskCenter: React.FC = () => {
               <p className="text-xs text-[#646B7C] mt-4">
                 Prinsip perlindungan data bisnis: Master Helpdesk dilarang memanipulasi angka stok secara sepihak, memalsukan status pembayaran, atau menghapus riwayat transaksi.
               </p>
+            </div>
+          </DataCard>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 1B. HELPDESK ACCOUNT & ACCESS MANAGEMENT TAB              */}
+      {/* ========================================================= */}
+      {activeTab === 'accounts' && canManageAccounts && (
+        <div className="space-y-5">
+          <DataCard
+            title="Manajemen Akun & Akses Pengguna"
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <ActionButton
+                  intent="neutral"
+                  disabled={accountsLoading}
+                  onClick={() => void loadAccountsFromServer()}
+                >
+                  {accountsLoading ? 'Menyinkronkan...' : 'Segarkan Data'}
+                </ActionButton>
+                <ActionButton intent="start" onClick={openCreateAccountModal}>
+                  + Tambah Akun
+                </ActionButton>
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-xs text-[#646B7C] leading-relaxed">
+                Helpdesk (<samp className="font-mono font-semibold text-[#1E2230]">HD-001</samp>) dapat melihat kredensial login (Password, PIN 12 digit, serta PIN 5 digit otomatis hasil kebalikan 5 digit akhir PIN 12 digit, contoh <samp className="font-mono font-semibold text-[#1E2230]">123456789012</samp> menjadi <samp className="font-mono font-semibold text-[#1E2230]">21098</samp>), mengubah role, dan mengelola seluruh akun pengguna.
+              </p>
+
+              {accountsError && (
+                <div
+                  role="status"
+                  className="p-3 rounded-[12px] bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E]"
+                >
+                  {accountsError}
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { value: 'Semua', label: 'Semua' },
+                    { value: 'admin', label: 'Admin (AD)' },
+                    { value: 'master_admin', label: 'Master Gudang (MG)' },
+                    { value: 'master_helpdesk', label: 'Helpdesk (HD)' },
+                    { value: 'mekanik', label: 'Mekanik (MK)' },
+                    { value: 'customer', label: 'Pelanggan (CS)' },
+                  ].map((pill) => {
+                    const active = accountRoleFilter === pill.value;
+                    return (
+                      <button
+                        key={pill.value}
+                        type="button"
+                        onClick={() => setAccountRoleFilter(pill.value)}
+                        className={`px-3 py-1.5 rounded-[10px] text-xs transition-colors ${
+                          active
+                            ? 'bg-[#1E2230] text-white border border-[#1E2230] font-semibold shadow-sm'
+                            : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
+                        }`}
+                      >
+                        {pill.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <input
+                  type="text"
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  placeholder="Cari ID role, nama, atau email..."
+                  className="admin-input text-xs w-full md:w-64"
+                />
+              </div>
+
+              <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[14px]">
+                <table className="w-full text-left border-collapse text-[13px] bg-white min-w-[880px]">
+                  <thead>
+                    <tr className="bg-[#F6F7FA] text-[#646B7C] border-b border-[#EEF0F4]">
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">ID & Role</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Nama</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Email</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Password</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 12 Digit</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 5 Digit</th>
+                      <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAccounts.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-[#646B7C]">
+                          Tidak ada akun yang sesuai filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAccounts.map((acc) => {
+                        const rowKey = acc.email;
+                        const isPwdVisible = Boolean(revealedPasswords[rowKey]);
+                        const isPinVisible = Boolean(revealedPins[rowKey]);
+                        const derivedPin5 =
+                          acc.pin5 || deriveFiveDigitPin(acc.pin12 || '') || '-';
+
+                        const roleBadgeCls =
+                          acc.role === 'master_admin' || acc.role === 'master_gudang'
+                            ? 'bg-[#EBF5FB] text-[#1D6FC4]'
+                            : acc.role === 'master_helpdesk'
+                            ? 'bg-[#F3E8FF] text-[#6B21A8]'
+                            : acc.role === 'admin' || acc.role === 'admin_gudang'
+                            ? 'bg-[#E8F8F0] text-[#1B8354]'
+                            : acc.role === 'mekanik'
+                            ? 'bg-[#FEF3C7] text-[#B45309]'
+                            : 'bg-[#F1F5F9] text-[#475569]';
+
+                        return (
+                          <tr
+                            key={rowKey}
+                            className="border-b border-[#EEF0F4] last:border-b-0 hover:bg-[#FAFBFD]"
+                          >
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="font-mono font-bold text-[#1E2230]">
+                                  {acc.roleCode || '-'}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-[6px] text-[11px] font-semibold ${roleBadgeCls}`}
+                                >
+                                  {getRoleDisplayName(acc.role)}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3.5 font-medium text-[#1E2230]">
+                              {acc.nama}
+                            </td>
+                            <td className="py-3 px-3.5 font-mono text-xs text-[#475569]">
+                              {acc.email}
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <span className="font-mono text-xs text-[#1E2230]">
+                                  {isPwdVisible ? acc.password || '-' : '••••••••'}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
+                                  title={isPwdVisible ? 'Sembunyikan password' : 'Lihat password'}
+                                  onClick={() =>
+                                    setRevealedPasswords((prev) => ({
+                                      ...prev,
+                                      [rowKey]: !prev[rowKey],
+                                    }))
+                                  }
+                                  className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    {isPwdVisible ? (
+                                      <>
+                                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                        <path d="M1 1l22 22" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                      </>
+                                    )}
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Salin password"
+                                  title="Salin password"
+                                  onClick={() =>
+                                    void handleCopySecret(
+                                      `pwd-${rowKey}`,
+                                      acc.password,
+                                      'Password'
+                                    )
+                                  }
+                                  className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
+                                >
+                                  {copiedSecretKey === `pwd-${rowKey}` ? 'Disalin' : 'Salin'}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <span className="font-mono text-xs text-[#1E2230]">
+                                  {acc.pin12
+                                    ? isPinVisible
+                                      ? acc.pin12
+                                      : '••••••••••••'
+                                    : '-'}
+                                </span>
+                                {acc.pin12 && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      aria-label={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
+                                      title={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
+                                      onClick={() =>
+                                        setRevealedPins((prev) => ({
+                                          ...prev,
+                                          [rowKey]: !prev[rowKey],
+                                        }))
+                                      }
+                                      className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA]"
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        {isPinVisible ? (
+                                          <>
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                            <path d="M1 1l22 22" />
+                                          </>
+                                        ) : (
+                                          <>
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                            <circle cx="12" cy="12" r="3" />
+                                          </>
+                                        )}
+                                      </svg>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label="Salin PIN 12 digit"
+                                      title="Salin PIN 12 digit"
+                                      onClick={() =>
+                                        void handleCopySecret(
+                                          `pin12-${rowKey}`,
+                                          acc.pin12,
+                                          'PIN 12 digit'
+                                        )
+                                      }
+                                      className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
+                                    >
+                                      {copiedSecretKey === `pin12-${rowKey}` ? 'Disalin' : 'Salin'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-xs px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E]">
+                                  {derivedPin5}
+                                </span>
+                                {derivedPin5 !== '-' && (
+                                  <button
+                                    type="button"
+                                    aria-label="Salin PIN 5 digit"
+                                    title="Salin PIN 5 digit"
+                                    onClick={() =>
+                                      void handleCopySecret(
+                                        `pin5-${rowKey}`,
+                                        derivedPin5,
+                                        'PIN 5 digit'
+                                      )
+                                    }
+                                    className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
+                                  >
+                                    {copiedSecretKey === `pin5-${rowKey}` ? 'Disalin' : 'Salin'}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <ActionButton
+                                  type="button"
+                                  intent="neutral"
+                                  onClick={() => openEditAccountModal(acc)}
+                                  className="!h-7 !px-2.5 !text-[12px]"
+                                >
+                                  Edit
+                                </ActionButton>
+                                <ActionButton
+                                  type="button"
+                                  intent="cancel"
+                                  disabled={
+                                    acc.email.toLowerCase() === (user?.email || '').toLowerCase()
+                                  }
+                                  onClick={() => {
+                                    setDeleteError('');
+                                    setDeleteTarget(acc);
+                                  }}
+                                  className="!h-7 !px-2.5 !text-[12px] disabled:opacity-40"
+                                >
+                                  Hapus
+                                </ActionButton>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </DataCard>
         </div>
@@ -1955,6 +2670,220 @@ export const HelpDeskCenter: React.FC = () => {
                 className="admin-input text-xs"
               />
             </FormField>
+          </div>
+        )}
+      </CenterDialog>
+      {/* ========================================================= */}
+      {/* MODAL: TAMBAH / EDIT AKUN PENGGUNA                        */}
+      {/* ========================================================= */}
+      <CenterDialog
+        isOpen={accountModalOpen}
+        onClose={() => !accFormSaving && setAccountModalOpen(false)}
+        title={editingAccount ? `Edit Akun (${editingAccount.roleCode})` : 'Tambah Akun Pengguna'}
+        subtitle="Kelola kredensial login, role akses, dan PIN keamanan terpusat"
+        maxWidthClass="max-w-[540px]"
+        footer={
+          <>
+            <ActionButton
+              type="button"
+              intent="cancel"
+              disabled={accFormSaving}
+              onClick={() => setAccountModalOpen(false)}
+            >
+              Batal
+            </ActionButton>
+            <ActionButton
+              type="button"
+              intent="start"
+              disabled={accFormSaving}
+              onClick={() => void handleSaveAccount()}
+            >
+              {accFormSaving
+                ? 'Menyimpan...'
+                : editingAccount
+                ? 'Simpan Perubahan'
+                : 'Buat Akun'}
+            </ActionButton>
+          </>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          {accFormError && (
+            <div
+              role="alert"
+              className="p-3 rounded-[10px] bg-[#FDE3E9] text-[#B4234A] font-medium"
+            >
+              {accFormError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField id="acc-form-role" label="Role / Hak Akses">
+              <select
+                id="acc-form-role"
+                value={accFormRole}
+                onChange={(e) => setAccFormRole(e.target.value as ManagedAccountRole)}
+                className="admin-input text-xs"
+              >
+                <option value="admin">Admin (AD)</option>
+                <option value="master_admin">Master Gudang (MG)</option>
+                <option value="master_helpdesk">Master Helpdesk (HD)</option>
+                <option value="mekanik">Mekanik (MK)</option>
+                <option value="customer">Pelanggan (CS)</option>
+              </select>
+            </FormField>
+
+            <FormField id="acc-form-code" label="Kode ID (Otomatis jika kosong)">
+              <input
+                id="acc-form-code"
+                value={accFormRoleCode}
+                onChange={(e) => setAccFormRoleCode(e.target.value.toUpperCase())}
+                placeholder={getNextRoleCodeForAccounts(accFormRole, accounts)}
+                className="admin-input text-xs font-mono"
+              />
+            </FormField>
+          </div>
+
+          <FormField id="acc-form-name" label="Nama Lengkap">
+            <input
+              id="acc-form-name"
+              value={accFormName}
+              onChange={(e) => setAccFormName(e.target.value)}
+              placeholder="Contoh: Admin Shift 2"
+              className="admin-input text-xs"
+            />
+          </FormField>
+
+          <FormField id="acc-form-email" label="Alamat Email">
+            <input
+              id="acc-form-email"
+              type="email"
+              value={accFormEmail}
+              onChange={(e) => setAccFormEmail(e.target.value)}
+              placeholder="nama@mybengkel.com"
+              className="admin-input text-xs font-mono"
+            />
+          </FormField>
+
+          <FormField
+            id="acc-form-password"
+            label={editingAccount ? 'Password Login (Opsional / ubah bila perlu)' : 'Password Login (Min. 6 karakter)'}
+          >
+            <div className="flex items-center gap-2">
+              <input
+                id="acc-form-password"
+                type={accFormShowPassword ? 'text' : 'password'}
+                value={accFormPassword}
+                onChange={(e) => setAccFormPassword(e.target.value)}
+                placeholder="Minimal 6 karakter"
+                className="admin-input text-xs font-mono flex-1"
+              />
+              <ActionButton
+                type="button"
+                intent="neutral"
+                onClick={() => setAccFormShowPassword((v) => !v)}
+                className="!h-9 !px-3 !text-xs"
+              >
+                {accFormShowPassword ? 'Tutup' : 'Lihat'}
+              </ActionButton>
+            </div>
+          </FormField>
+
+          <FormField id="acc-form-pin12" label="PIN Keamanan (12 Digit Angka)">
+            <input
+              id="acc-form-pin12"
+              type="text"
+              inputMode="numeric"
+              maxLength={12}
+              value={accFormPin12}
+              onChange={(e) =>
+                setAccFormPin12(e.target.value.replace(/\D/g, '').slice(0, 12))
+              }
+              placeholder="123456789012"
+              className="admin-input text-xs font-mono tracking-wider"
+            />
+          </FormField>
+
+          <div className="p-3 rounded-[10px] bg-[#FEF3C7]/60 border border-[#FDE68A] flex items-center justify-between gap-3">
+            <div>
+              <span className="text-[11px] font-semibold text-[#92400E] block">
+                PIN Operasional 5 Digit (Otomatis)
+              </span>
+              <span className="text-[11px] text-[#78350F]">
+                Kebalikan 5 digit terakhir dari PIN 12 digit
+              </span>
+            </div>
+            <span className="font-mono font-bold text-base px-2.5 py-1 rounded-[8px] bg-white border border-[#F59E0B]/40 text-[#92400E]">
+              {deriveFiveDigitPin(accFormPin12) || '-'}
+            </span>
+          </div>
+
+          <label className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#F6F7FA] border border-[#EEF0F4] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={accFormSendEmail}
+              onChange={(e) => setAccFormSendEmail(e.target.checked)}
+              className="w-4 h-4 rounded accent-[#1E2230]"
+            />
+            <span className="text-xs text-[#1E2230]">
+              Kirim notifikasi email pembaruan kredensial ke pengguna ini
+            </span>
+          </label>
+        </div>
+      </CenterDialog>
+
+      {/* ========================================================= */}
+      {/* MODAL: KONFIRMASI HAPUS AKUN                              */}
+      {/* ========================================================= */}
+      <CenterDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => !deleteSaving && setDeleteTarget(null)}
+        title="Hapus Akun Pengguna"
+        subtitle={
+          deleteTarget
+            ? `${deleteTarget.roleCode} (${deleteTarget.email})`
+            : 'Konfirmasi penghapusan akun'
+        }
+        maxWidthClass="max-w-[440px]"
+        footer={
+          <>
+            <ActionButton
+              type="button"
+              intent="neutral"
+              disabled={deleteSaving}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Batal
+            </ActionButton>
+            <ActionButton
+              type="button"
+              intent="cancel"
+              disabled={deleteSaving}
+              onClick={() => void handleConfirmDeleteAccount()}
+            >
+              {deleteSaving ? 'Menghapus...' : 'Ya, Hapus Akun'}
+            </ActionButton>
+          </>
+        }
+      >
+        {deleteTarget && (
+          <div className="space-y-3 text-xs text-[#1E2230]">
+            {deleteError && (
+              <div
+                role="alert"
+                className="p-3 rounded-[10px] bg-[#FDE3E9] text-[#B4234A] font-medium"
+              >
+                {deleteError}
+              </div>
+            )}
+            <p className="leading-relaxed">
+              Apakah Anda yakin ingin menghapus akun{' '}
+              <strong>{deleteTarget.nama}</strong> ({deleteTarget.email}) dengan ID role{' '}
+              <samp className="font-mono font-bold">{deleteTarget.roleCode}</samp>?
+            </p>
+            <p className="text-[#646B7C]">
+              Akses login akun ini akan segera dicabut dari database dan registrasi aktif.
+            </p>
           </div>
         )}
       </CenterDialog>

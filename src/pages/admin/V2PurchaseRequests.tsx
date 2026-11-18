@@ -8,6 +8,7 @@ import {
   rejectRegulerRequest,
   useAdmin,
 } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import {
   Part,
   PurchaseRequest,
@@ -62,8 +63,11 @@ const makeEmptyLine = (): DraftLineRow => ({
 
 const V2PurchaseRequests: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const { purchaseRequests, parts, stockMovements } = useAdmin();
   const { notify } = useActionIsland();
+  const canApproveWarehouse = role === 'master_admin';
+  const canCreateRequest = role === 'admin' || role === 'master_admin';
 
   const [activeTab, setActiveTab] = useState<TabKey>('Semua');
   const [flashRowId, setFlashRowId] = useState<string | null>(null);
@@ -175,7 +179,7 @@ const V2PurchaseRequests: React.FC = () => {
               setEyeRequestId(req.id);
             }}
           />
-          {req.state === 'diajukan' && (
+          {req.state === 'diajukan' && canApproveWarehouse && (
             <>
               <CheckIconButton
                 ariaLabel="Setujui"
@@ -218,7 +222,7 @@ const V2PurchaseRequests: React.FC = () => {
             setEyeRequestId(req.id);
           }}
         />
-        {isBelumOrSampai && (
+        {canApproveWarehouse && isBelumOrSampai && (
           <>
             <ProcessIconButton
               ariaLabel="Proses"
@@ -827,7 +831,7 @@ const V2PurchaseRequests: React.FC = () => {
               ]}
             />
 
-            {activeTab === 'Permintaan Reguler' && (
+            {canCreateRequest && activeTab === 'Permintaan Reguler' && (
               <ActionButton
                 type="button"
                 intent="start"
@@ -837,7 +841,7 @@ const V2PurchaseRequests: React.FC = () => {
               </ActionButton>
             )}
 
-            {activeTab === 'Permintaan HO' && (
+            {canCreateRequest && activeTab === 'Permintaan HO' && (
               <ActionButton
                 type="button"
                 intent="start"
@@ -845,6 +849,12 @@ const V2PurchaseRequests: React.FC = () => {
               >
                 Ajukan HO
               </ActionButton>
+            )}
+
+            {!canApproveWarehouse && (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-[999px] bg-[#F6F7FA] border border-[#D9DDE6] text-[12px] font-medium text-[#646B7C]">
+                Persetujuan oleh Master Gudang
+              </span>
             )}
           </div>
         }

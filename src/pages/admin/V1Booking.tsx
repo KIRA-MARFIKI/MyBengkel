@@ -6,6 +6,7 @@ import {
   cancelBooking,
   restoreBooking,
 } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import { ARRIVAL_TARGET, type Booking, type BookingStatus } from '../../data/adminDummy';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
@@ -46,8 +47,10 @@ const addDays = (iso: string, n: number): string => {
 
 const V1Booking: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const { bookings } = useAdmin();
   const { notifyAction } = useActionIsland();
+  const canExecuteServis = role === 'admin';
   const [params] = useSearchParams();
   const today = todayISO();
   const tomorrow = addDays(today, 1);
@@ -189,6 +192,9 @@ const V1Booking: React.FC = () => {
       header: 'Aksi',
       render: (b) => {
         if (b.status === 'menunggu') {
+          if (!canExecuteServis) {
+            return <span className="text-[12px] text-[#646B7C]">Mode pantau</span>;
+          }
           const checkLabel = `Tandai datang`;
           const cancelLabel = `Batal`;
           return (
@@ -328,25 +334,37 @@ const V1Booking: React.FC = () => {
         </div>
       </div>
     );
-    panelFooter =
-      selected.status === 'menunggu' ? (
-        <div className="flex flex-wrap items-center justify-end gap-3 w-full">
-          <ActionButton intent="cancel" onClick={() => handleCancelRow(selected)}>
-            Batal
-          </ActionButton>
-          <ActionButton intent="start" onClick={() => handleCheckArrived(selected)}>
-            Tandai datang
-          </ActionButton>
-        </div>
-      ) : selected.status === 'batal' ? (
-        <div className="flex flex-wrap items-center justify-end gap-3 w-full">
+    panelFooter = !canExecuteServis ? (
+      <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+        <span className="text-[12px] font-medium text-[#646B7C]">
+          Mode pantau (Read-only): Hanya Admin yang dapat mengeksekusi booking.
+        </span>
+        {selected.status === 'batal' && (
           <PrintIconButton
             ariaLabel={`Cetak bukti pembatalan ${selected.plate}`}
             title={`Cetak bukti pembatalan ${selected.plate}`}
             onClick={() => handlePrintCancelledBooking(selected)}
           />
-        </div>
-      ) : undefined;
+        )}
+      </div>
+    ) : selected.status === 'menunggu' ? (
+      <div className="flex flex-wrap items-center justify-end gap-3 w-full">
+        <ActionButton intent="cancel" onClick={() => handleCancelRow(selected)}>
+          Batal
+        </ActionButton>
+        <ActionButton intent="start" onClick={() => handleCheckArrived(selected)}>
+          Tandai datang
+        </ActionButton>
+      </div>
+    ) : selected.status === 'batal' ? (
+      <div className="flex flex-wrap items-center justify-end gap-3 w-full">
+        <PrintIconButton
+          ariaLabel={`Cetak bukti pembatalan ${selected.plate}`}
+          title={`Cetak bukti pembatalan ${selected.plate}`}
+          onClick={() => handlePrintCancelledBooking(selected)}
+        />
+      </div>
+    ) : undefined;
   }
 
   return (
@@ -366,9 +384,11 @@ const V1Booking: React.FC = () => {
               }))}
             />
             <SearchField value={query} onChange={setQuery} placeholder="Cari plat atau nama" />
-            <ActionButton intent="start" onClick={(e) => openNew(e)}>
-              Booking baru
-            </ActionButton>
+            {canExecuteServis && (
+              <ActionButton intent="start" onClick={(e) => openNew(e)}>
+                Booking baru
+              </ActionButton>
+            )}
           </>
         }
       >
@@ -379,8 +399,8 @@ const V1Booking: React.FC = () => {
                 ? `Tidak ada booking pada tab ini.`
                 : 'Belum ada booking.'
             }
-            actionText="Booking baru"
-            onAction={() => openNew()}
+            actionText={canExecuteServis ? 'Booking baru' : undefined}
+            onAction={canExecuteServis ? () => openNew() : undefined}
           />
         ) : (
           <DataTable

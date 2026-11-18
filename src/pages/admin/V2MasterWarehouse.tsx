@@ -31,6 +31,7 @@ import { SidePanel } from '../../components/admin/SidePanel';
 import { ExpandableSearch } from '../../components/admin/ExpandableSearch';
 import { FormField } from '../../components/admin/FormField';
 import { CredentialGate, CredentialGateField } from '../../components/admin/CredentialGate';
+import { useAuth } from '../../lib/mockAuth';
 import {
   DUMMY_ADMIN,
   DUMMY_ADMIN_GUDANG,
@@ -116,11 +117,45 @@ const EDIT_GATE_FIELDS: CredentialGateField[] = [
 
 const V2MasterWarehouse: React.FC = () => {
   const navigate = useNavigate();
+  const { role, user } = useAuth();
   const { parts, partChanges, stockMovements, purchaseRequests } = useAdmin();
   const { notify } = useActionIsland();
 
-  // In-memory warehouse role session (resets on unmount or reload)
-  const [verifiedUser, setVerifiedUser] = useState<VerifiedWarehouseUser | null>(null);
+  const [manuallyLocked, setManuallyLocked] = useState<boolean>(false);
+  const [verifiedUser, setVerifiedUser] = useState<VerifiedWarehouseUser | null>(() => {
+    if (role === 'master_admin') {
+      return {
+        id: user?.roleCode || DUMMY_MASTER.id,
+        nama: user?.name || DUMMY_MASTER.nama,
+        role: 'master_gudang',
+      };
+    }
+    if (role === 'admin' || role === 'master_helpdesk') {
+      return {
+        id: user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : DUMMY_ADMIN_GUDANG.id),
+        nama: user?.name || (role === 'master_helpdesk' ? 'Master Helpdesk' : 'Admin'),
+        role: 'admin_gudang',
+      };
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (manuallyLocked || verifiedUser) return;
+    if (role === 'master_admin') {
+      setVerifiedUser({
+        id: user?.roleCode || DUMMY_MASTER.id,
+        nama: user?.name || DUMMY_MASTER.nama,
+        role: 'master_gudang',
+      });
+    } else if (role === 'admin' || role === 'master_helpdesk') {
+      setVerifiedUser({
+        id: user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : DUMMY_ADMIN_GUDANG.id),
+        nama: user?.name || (role === 'master_helpdesk' ? 'Master Helpdesk' : 'Admin'),
+        role: 'admin_gudang',
+      });
+    }
+  }, [role, user?.roleCode, user?.name, verifiedUser, manuallyLocked]);
   const [activeTab, setActiveTab] = useState<'katalog' | 'opname'>('katalog');
 
   const isMasterGudang = verifiedUser?.role === 'master_gudang';
@@ -518,7 +553,7 @@ const V2MasterWarehouse: React.FC = () => {
         isOpen={!verifiedUser}
         title="Verifikasi Gudang"
         subtitle="Masukkan kredensial gudang untuk mengakses halaman ini"
-        prototypeNote={`Prototype Admin Gudang: ID "${DUMMY_ADMIN_GUDANG.id}", Nama "${DUMMY_ADMIN_GUDANG.nama}", Password "${DUMMY_ADMIN_GUDANG.password}", PIN "${DUMMY_ADMIN_GUDANG.pin}".\nPrototype Master Gudang: ID "${DUMMY_MASTER.id}", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN "${DUMMY_MASTER.pin}".`}
+        prototypeNote={`Akses Admin (ID: "AD-001", Password "${DUMMY_ADMIN_GUDANG.password}", PIN 5 digit "21098") atau Master Gudang (ID: "MG-001", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN 5 digit "21098").`}
         fields={ENTRY_GATE_FIELDS}
         submitLabel="Masuk"
         errorMessage="Data verifikasi tidak cocok."
@@ -527,6 +562,7 @@ const V2MasterWarehouse: React.FC = () => {
         onPass={(vals) => {
           const user = verifyWarehouseCredential(vals);
           if (user) {
+            setManuallyLocked(false);
             setVerifiedUser(user);
           }
         }}
@@ -536,7 +572,11 @@ const V2MasterWarehouse: React.FC = () => {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm">
             <FilterTabs
-              tabs={WAREHOUSE_TABS}
+              tabs={
+                isMasterGudang
+                  ? WAREHOUSE_TABS
+                  : WAREHOUSE_TABS.filter((t) => t.value !== 'opname')
+              }
               value={activeTab}
               onChange={(v) => setActiveTab(v as 'katalog' | 'opname')}
               ariaLabel="Navigasi Gudang"
@@ -562,6 +602,7 @@ const V2MasterWarehouse: React.FC = () => {
                 type="button"
                 intent="cancel"
                 onClick={() => {
+                  setManuallyLocked(true);
                   setVerifiedUser(null);
                   setSelectedPartCode(null);
                   setIsEditing(false);

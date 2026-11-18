@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import {
   ARRIVAL_TARGET,
   Booking,
@@ -50,7 +50,16 @@ import {
   initialWorkOrders,
   makePartRecord,
 } from '../data/adminDummy';
-import { DUMMY_ADMIN, DUMMY_ADMIN_LOGIN_PIN, DUMMY_MASTER } from '../lib/mockCredentials';
+import {
+  DUMMY_ADMIN,
+  DUMMY_ADMIN_LOGIN_PIN,
+  DUMMY_MASTER,
+  getDeletedAccountEmails,
+  getManagedAccounts,
+  saveManagedAccounts,
+  type ManagedAccountRecord,
+} from '../lib/mockCredentials';
+import { supabase } from '../lib/supabase';
 import { formatRupiah } from '../lib/format';
 import { printDocument } from '../lib/printDocument';
 import {
@@ -301,13 +310,250 @@ const loadInitialStore = (): PersistedAdminStore => {
 };
 
 // -------------------------------------------------------------
-// SINGLE MODULE-LEVEL STORE (SAVED IN LOCALSTORAGE)
+// SINGLE CENTRALIZED STORE (LOCALSTORAGE + SUPABASE REALTIME SYNC)
 // -------------------------------------------------------------
 
 let storeState: PersistedAdminStore = loadInitialStore();
 const listeners = new Set<() => void>();
+let lastLocalMutationMs = 0;
+let lastSyncedSignature = '';
+let pushDebounceTimer: number | null = null;
+let supabaseSyncInFlight = false;
+
+interface RemoteWorkshopPayload extends PersistedAdminStore {
+  managedAccounts?: ManagedAccountRecord[];
+  deletedAccountEmails?: string[];
+  updatedAt?: string;
+}
+
+const buildRemotePayload = (state: PersistedAdminStore): RemoteWorkshopPayload => ({
+  ...state,
+  managedAccounts: getManagedAccounts(),
+  deletedAccountEmails: getDeletedAccountEmails(),
+  updatedAt: new Date().toISOString(),
+});
+
+const mergeRemoteBookings = (
+  baseBookings: Booking[],
+  tableRows: any[]
+): Booking[] => {
+  if (!Array.isArray(tableRows) || tableRows.length === 0) return baseBookings;
+  const map = new Map<string, Booking>();
+  for (const b of baseBookings) {
+    if (b && b.id) map.set(b.id, b);
+  }
+  for (const row of tableRows) {
+    const raw = (row && typeof row.payload === 'object' && row.payload ? row.payload : row) as Partial<Booking>;
+    const id = String(raw.id || row.id || '').trim();
+    if (!id) continue;
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        customerName: String(raw.customerName || row.customer_name || 'Konsumen'),
+        plate: String(raw.plate || row.plate || '-'),
+        engineNo: String(raw.engineNo || row.engine_no || 'JM51E-0000'),
+        frameNo: String(raw.frameNo || row.frame_no || 'MH1JM5110PK-0000'),
+        service: String(raw.service || row.service || 'Servis Rutin'),
+        date: String(raw.date || row.date || formatTodayDate()),
+        hour: String(raw.hour || row.hour || '08.00'),
+        complaint: String(raw.complaint ?? row.complaint ?? ''),
+        status: (VALID_BOOKING_STATUSES.has(String(raw.status || row.status))
+          ? (raw.status || row.status)
+          : 'menunggu') as Booking['status'],
+        source: (raw.source || row.source) === 'langsung' ? 'langsung' : 'online',
+        customerEmail: raw.customerEmail || row.customer_email,
+        serviceFormId: raw.serviceFormId || row.service_form_id,
+        createdAt: raw.createdAt || formatNowTimestamp(),
+        history: Array.isArray(raw.history) ? raw.history : [],
+      });
+    }
+  }
+  return Array.from(map.values());
+};
+
+const normalizeRemoteStore = (
+  raw: Partial<RemoteWorkshopPayload>,
+  tableBookingRows: any[] = []
+): PersistedAdminStore => {
+  const defaults = createDefaultStore();
+  const baseBookings = Array.isArray(raw.bookings) ? raw.bookings : defaults.bookings;
+  const mergedBookings = mergeRemoteBookings(baseBookings, tableBookingRows);
+
+  return {
+    mechanics: Array.isArray(raw.mechanics) ? raw.mechanics : defaults.mechanics,
+    customers: Array.isArray(raw.customers) ? raw.customers : defaults.customers,
+    vehicles: Array.isArray(raw.vehicles) ? raw.vehicles : defaults.vehicles,
+    parts: Array.isArray(raw.parts) ? raw.parts.map((p) => normalizePart(p)) : defaults.parts,
+    partHistory: Array.isArray(raw.partHistory)
+      ? raw.partHistory
+      : Array.isArray(raw.partChanges)
+      ? raw.partChanges
+      : defaults.partHistory,
+    partChanges: Array.isArray(raw.partChanges)
+      ? raw.partChanges
+      : Array.isArray(raw.partHistory)
+      ? raw.partHistory
+      : defaults.partChanges,
+    stockMovements: Array.isArray(raw.stockMovements) ? raw.stockMovements : defaults.stockMovements,
+    bookings: mergedBookings.map((b) => ({
+      ...b,
+      status: (VALID_BOOKING_STATUSES.has(b.status) ? b.status : 'batal') as Booking['status'],
+      source: b.source === 'langsung' ? 'langsung' : 'online',
+      hour: b.hour || '08.00',
+      engineNo: b.engineNo || 'JM51E-0000',
+      frameNo: b.frameNo || 'MH1JM5110PK-0000',
+      complaint: b.complaint ?? '',
+    })) as Booking[],
+    serviceForms: Array.isArray(raw.serviceForms) ? raw.serviceForms : defaults.serviceForms,
+    workOrders: Array.isArray(raw.workOrders) ? raw.workOrders : defaults.workOrders,
+    purchaseRequests: Array.isArray(raw.purchaseRequests)
+      ? raw.purchaseRequests
+      : defaults.purchaseRequests,
+    sales: Array.isArray(raw.sales) ? raw.sales : defaults.sales,
+    attendance: Array.isArray(raw.attendance) ? raw.attendance : defaults.attendance,
+    tickets: Array.isArray(raw.tickets) ? raw.tickets : defaults.tickets,
+    correctionRequests: Array.isArray(raw.correctionRequests)
+      ? raw.correctionRequests
+      : defaults.correctionRequests,
+    knowledgeBase: Array.isArray(raw.knowledgeBase) ? raw.knowledgeBase : defaults.knowledgeBase,
+    manualEntries: Array.isArray(raw.manualEntries) ? raw.manualEntries : defaults.manualEntries,
+    stockOpnames: Array.isArray(raw.stockOpnames) ? raw.stockOpnames : defaults.stockOpnames,
+    auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : defaults.auditLogs,
+  };
+};
+
+export async function pushSharedWorkshopStateToSupabase(
+  snapshot: PersistedAdminStore = storeState
+): Promise<void> {
+  const payload = buildRemotePayload(snapshot);
+  try {
+    lastSyncedSignature = JSON.stringify(snapshot);
+  } catch {
+    // ignore
+  }
+  try {
+    const { error: rpcErr } = await supabase.rpc('save_shared_workshop_state', {
+      p_payload: payload,
+    });
+    if (!rpcErr) return;
+  } catch {
+    // fallback to direct table upsert
+  }
+
+  try {
+    await supabase.from('shared_workshop_state').upsert({
+      id: 'global',
+      payload,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    // safe fallback when offline
+  }
+}
+
+export async function syncSharedWorkshopStateFromSupabase(): Promise<void> {
+  if (supabaseSyncInFlight) return;
+  if (Date.now() - lastLocalMutationMs < 900) return;
+  supabaseSyncInFlight = true;
+  try {
+    let remotePayload: Partial<RemoteWorkshopPayload> | null = null;
+    let bookingRows: any[] = [];
+
+    try {
+      const { data, error } = await supabase.rpc('get_shared_workshop_state');
+      if (!error && data?.ok) {
+        if (data.payload && Object.keys(data.payload).length > 0) {
+          remotePayload = data.payload as Partial<RemoteWorkshopPayload>;
+        }
+        if (Array.isArray(data.bookings_rows)) {
+          bookingRows = data.bookings_rows;
+        }
+      }
+    } catch {
+      // fallback below
+    }
+
+    if (!remotePayload) {
+      try {
+        const { data: tableRow } = await supabase
+          .from('shared_workshop_state')
+          .select('payload')
+          .eq('id', 'global')
+          .maybeSingle();
+        if (tableRow?.payload && Object.keys(tableRow.payload).length > 0) {
+          remotePayload = tableRow.payload as Partial<RemoteWorkshopPayload>;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (bookingRows.length === 0) {
+      try {
+        const { data: bRows } = await supabase.from('bookings').select('*');
+        if (Array.isArray(bRows)) {
+          bookingRows = bRows;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!remotePayload && bookingRows.length === 0) {
+      // First initialization: push seed/local store to shared remote state
+      await pushSharedWorkshopStateToSupabase(storeState);
+      return;
+    }
+
+    if (Date.now() - lastLocalMutationMs < 900) return;
+
+    if (remotePayload?.deletedAccountEmails && Array.isArray(remotePayload.deletedAccountEmails)) {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const mergedDeleted = Array.from(
+            new Set([
+              ...getDeletedAccountEmails(),
+              ...remotePayload.deletedAccountEmails.map((e) => String(e).toLowerCase().trim()),
+            ])
+          );
+          localStorage.setItem('mb_deleted_accounts_v1', JSON.stringify(mergedDeleted));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    if (remotePayload?.managedAccounts && Array.isArray(remotePayload.managedAccounts)) {
+      const deletedSet = new Set(getDeletedAccountEmails());
+      const filteredAccounts = remotePayload.managedAccounts.filter(
+        (acc) => acc && acc.email && !deletedSet.has(acc.email.toLowerCase().trim())
+      );
+      if (filteredAccounts.length > 0) {
+        saveManagedAccounts(filteredAccounts);
+      }
+    }
+
+    const nextNormalized = normalizeRemoteStore(remotePayload || {}, bookingRows);
+    const nextSig = JSON.stringify(nextNormalized);
+    if (nextSig !== lastSyncedSignature && nextSig !== JSON.stringify(storeState)) {
+      lastSyncedSignature = nextSig;
+      storeState = nextNormalized;
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, nextSig);
+        } catch {
+          // ignore
+        }
+      }
+      listeners.forEach((l) => l());
+    }
+  } finally {
+    supabaseSyncInFlight = false;
+  }
+}
 
 const saveStore = (next: PersistedAdminStore) => {
+  lastLocalMutationMs = Date.now();
   storeState = next;
   if (typeof window !== 'undefined') {
     try {
@@ -315,6 +561,13 @@ const saveStore = (next: PersistedAdminStore) => {
     } catch {
       // Ignore storage quota errors in prototype
     }
+    if (pushDebounceTimer !== null) {
+      window.clearTimeout(pushDebounceTimer);
+    }
+    pushDebounceTimer = window.setTimeout(() => {
+      pushDebounceTimer = null;
+      void pushSharedWorkshopStateToSupabase(storeState);
+    }, 80);
   }
   listeners.forEach((l) => l());
 };
@@ -349,8 +602,8 @@ export const recordAuditEvent = (
 
 export const recordReportExportEvent = (params: {
   actor: { id: string; nama: string; role: AuditActorRole };
-  format: 'Excel' | 'PDF';
-  scope: 'admin' | 'master_admin';
+  format: 'Excel' | 'PDF' | 'CSV';
+  scope: 'admin' | 'master_admin' | 'all' | 'service' | 'sales' | 'warehouse';
   periodLabel: string;
 }): AuditLog => {
   return recordAuditEvent({
@@ -360,7 +613,13 @@ export const recordReportExportEvent = (params: {
     event: params.scope === 'master_admin' ? 'report_export_master' : 'report_export_admin',
     category: 'akses',
     module: 'laporan',
-    action: `Ekspor Laporan ${params.scope === 'master_admin' ? 'Master Admin (+ Audit Trail)' : 'Admin'} (${params.format})`,
+    action: `Ekspor Laporan ${
+      params.scope === 'master_admin'
+        ? 'Master Admin (+ Audit Trail)'
+        : params.scope === 'admin'
+        ? 'Admin'
+        : params.scope.toUpperCase()
+    } (${params.format})`,
     entityType: 'Export',
     entityId: `EXP-${params.format.toUpperCase()}-${Date.now().toString().slice(-4)}`,
     afterData: {
@@ -3179,6 +3438,56 @@ const AdminContext = createContext<AdminContextType | undefined>(undefined);
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const state = useSyncExternalStore(subscribeAdminStore, getAdminStore, getAdminStore);
 
+  useEffect(() => {
+    void syncSharedWorkshopStateFromSupabase();
+
+    const handleStorage = (ev: StorageEvent) => {
+      if (ev.key === STORAGE_KEY) {
+        storeState = loadInitialStore();
+        listeners.forEach((l) => l());
+      }
+    };
+
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void syncSharedWorkshopStateFromSupabase();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    const pollTimer = window.setInterval(() => {
+      void syncSharedWorkshopStateFromSupabase();
+    }, 4000);
+
+    const channel = supabase
+      .channel('mybengkel-shared-workshop-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shared_workshop_state' },
+        () => {
+          void syncSharedWorkshopStateFromSupabase();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => {
+          void syncSharedWorkshopStateFromSupabase();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      window.clearInterval(pollTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
   const getPartStock = (partCode: string): number => {
     const cur = getAdminStore();
     return computeStock(partCode, cur.stockMovements);
@@ -3620,6 +3929,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const refreshDataStore = () => {
     storeState = loadInitialStore();
     listeners.forEach((l) => l());
+    void syncSharedWorkshopStateFromSupabase();
   };
 
   const addManualEntry = (e: Omit<ManualEntry, 'id'>): ManualEntry => {

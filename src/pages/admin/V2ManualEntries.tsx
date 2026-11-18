@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAdmin } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import type { ManualEntry } from '../../data/adminDummy';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
@@ -12,7 +13,9 @@ import { setLastTriggerElement } from '../../components/admin/island/IslandSyste
 import { formatRupiah, todayISO } from '../../lib/format';
 
 const V2ManualEntries: React.FC = () => {
+  const { role } = useAuth();
   const { manualEntries, addManualEntry } = useAdmin();
+  const canWriteManual = role === 'master_admin';
   const [catFilter, setCatFilter] = useState<string>('Semua');
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -85,15 +88,21 @@ const V2ManualEntries: React.FC = () => {
                 },
               ]}
             />
-            <ActionButton
-              intent="cream"
-              onClick={(e) => {
-                setLastTriggerElement(e.currentTarget);
-                setPanelOpen(true);
-              }}
-            >
-              Catat transaksi
-            </ActionButton>
+            {canWriteManual ? (
+              <ActionButton
+                intent="cream"
+                onClick={(e) => {
+                  setLastTriggerElement(e.currentTarget);
+                  setPanelOpen(true);
+                }}
+              >
+                Catat transaksi
+              </ActionButton>
+            ) : (
+              <span className="text-xs font-medium text-[#646B7C] px-2.5 py-1 rounded-[8px] bg-[#F6F7FA]">
+                Mode pantau (Baca saja)
+              </span>
+            )}
           </>
         }
       >

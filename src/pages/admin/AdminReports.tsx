@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useAdmin } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, type Column } from '../../components/admin/DataTable';
 import { ActionButton, DownloadIcon, PrinterIcon } from '../../components/admin/ActionButton';
@@ -123,6 +124,7 @@ interface AdminReportsProps {
 
 export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) => {
   const adminStore = useAdmin();
+  const { user, role } = useAuth();
   const { notify } = useActionIsland();
 
   // Export PIN Gate & Master Admin Access State
@@ -395,6 +397,128 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
     }, 40);
   };
 
+  const handleDownloadCsv = (targetScope: 'all' | 'service' | 'sales' | 'warehouse') => {
+    const csvKey = `${targetScope}-csv`;
+    handleExport(csvKey, () => {
+      const escapeCell = (val: unknown): string => {
+        const s = val === null || val === undefined ? '' : String(val);
+        if (/[",\r\n]/.test(s)) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+      const lines: string[] = [];
+      const pushRow = (cols: unknown[]) => {
+        lines.push(cols.map(escapeCell).join(','));
+      };
+
+      pushRow(['Laporan MyBengkel', `Cakupan: ${targetScope.toUpperCase()}`, `Periode: ${serviceData.periodLabel}`, `Tanggal Ekspor: ${todayISO()}`]);
+      pushRow([]);
+
+      if (targetScope === 'all' || targetScope === 'service') {
+        pushRow(['=== BAGIAN 1: LAPORAN OPERASIONAL SERVIS ===']);
+        pushRow(['Metrik', 'Nilai']);
+        pushRow(['Total Booking', serviceData.kpis.totalBooking]);
+        pushRow(['Total Service Form', serviceData.kpis.totalServiceForm]);
+        pushRow(['Total Work Order', serviceData.kpis.totalWorkOrder]);
+        pushRow(['WO Berjalan', serviceData.kpis.woBerjalan]);
+        pushRow(['WO Selesai', serviceData.kpis.woSelesai]);
+        pushRow(['WO Batal', serviceData.kpis.woBatal]);
+        pushRow(['Total Omzet Jasa', serviceData.kpis.totalOmzetJasa]);
+        pushRow(['Total Nilai Part Selesai', serviceData.kpis.totalNilaiPartSelesai]);
+        pushRow([]);
+        pushRow(['No. WO', 'Konsumen', 'No. HP', 'Plat Nomor', 'Tipe Motor', 'Warna', 'Mekanik', 'Tgl Masuk', 'Tgl Selesai', 'Status WO', 'Total Jasa', 'Total Part', 'Total Servis']);
+        for (const r of serviceData.tables.mainWorkOrders) {
+          pushRow([r.nomorWo, r.namaKonsumen, r.nomorHp, r.nomorPlat, r.tipeMotor, r.warnaMotor, r.mekanik, r.tanggalMasuk, r.tanggalSelesai, r.statusWo, r.totalJasa, r.totalPart, r.totalServis]);
+        }
+        pushRow([]);
+        pushRow(['Kode Booking', 'Konsumen', 'Plat Nomor', 'Layanan', 'Tanggal', 'Jam', 'Status', 'Sumber']);
+        for (const r of serviceData.tables.bookings) {
+          pushRow([r.kodeBooking, r.namaKonsumen, r.platNomor, r.layanan, r.tanggal, r.jam, r.status, r.sumberBooking]);
+        }
+        pushRow([]);
+      }
+
+      if (targetScope === 'all' || targetScope === 'sales') {
+        pushRow(['=== BAGIAN 2: LAPORAN PENJUALAN SPAREPART ===']);
+        pushRow(['Metrik', 'Nilai']);
+        pushRow(['Omzet Part Kasir POS', salesData.kpis.totalOmzetPos]);
+        pushRow(['Nilai Part WO Selesai', salesData.kpis.totalNilaiPartWoSelesai]);
+        pushRow(['Total Penjualan Gabungan', salesData.kpis.totalPenjualanPartGabungan]);
+        pushRow(['Transaksi POS Dibayar', salesData.kpis.totalTransaksiPosDibayar]);
+        pushRow(['Total Qty Part Terjual', salesData.kpis.totalJumlahPartTerjual]);
+        pushRow([]);
+        pushRow(['No. Transaksi POS', 'Waktu', 'Konsumen', 'Kode Part', 'Nama Part', 'Qty', 'Harga Satuan', 'Subtotal', 'Metode', 'Status', 'Kasir']);
+        for (const r of salesData.tables.posLines) {
+          pushRow([r.kodeTransaksi, r.tanggalTransaksi, r.namaKonsumen, r.kodePart, r.namaPart, r.jumlah, r.hargaSatuan, r.subtotal, r.metodePembayaran, r.statusPembayaran, r.kasir]);
+        }
+        pushRow([]);
+        pushRow(['No. WO (Part)', 'Tgl Selesai', 'Konsumen', 'Plat Nomor', 'Kode Part', 'Nama Part', 'Qty', 'Harga Satuan', 'Subtotal', 'Mekanik', 'Status WO']);
+        for (const r of salesData.tables.woPartLines) {
+          pushRow([r.nomorWo, r.tanggalSelesai, r.namaKonsumen, r.platNomor, r.kodePart, r.namaPart, r.jumlah, r.hargaSatuan, r.subtotal, r.mekanik, r.statusWo]);
+        }
+        pushRow([]);
+      }
+
+      if (targetScope === 'all' || targetScope === 'warehouse') {
+        pushRow(['=== BAGIAN 3: LAPORAN PENGELOLAAN GUDANG ===']);
+        pushRow(['Metrik', 'Nilai']);
+        pushRow(['Total Jenis Part', warehouseData.kpis.totalJenisPart]);
+        pushRow(['Part Stok Aman', warehouseData.kpis.partAmanCount]);
+        pushRow(['Part Stok Kritis', warehouseData.kpis.partKritisCount]);
+        pushRow(['Part HO', warehouseData.kpis.partHoCount]);
+        pushRow(['Total Stok Fisik', warehouseData.kpis.totalStokTersedia]);
+        pushRow(['Total Barang Masuk', warehouseData.kpis.totalBarangMasuk]);
+        pushRow(['Total Barang Keluar', warehouseData.kpis.totalBarangKeluar]);
+        pushRow([]);
+        pushRow(['Kode Part', 'Nama Part', 'Satuan', 'Jenis', 'Stok', 'Stok Minimum', 'Harga Beli', 'Harga Jual', 'Status', 'Tgl Dibuat']);
+        for (const r of warehouseData.tables.partConditions) {
+          pushRow([r.kodePart, r.namaPart, r.satuan, r.jenis, r.stok, r.stokMinimum, r.hargaBeli, r.hargaJual, r.status, r.tanggalDibuat]);
+        }
+        pushRow([]);
+        pushRow(['Tanggal Mutasi', 'Kode Part', 'Nama Part', 'Jenis Mutasi', 'Masuk', 'Keluar', 'Referensi', 'Sumber', 'Dicatat Oleh']);
+        for (const r of warehouseData.tables.movements) {
+          pushRow([r.tanggal, r.kodePart, r.namaPart, r.jenisMutasi, r.qtyMasuk, r.qtyKeluar, r.referensiTransaksi, r.sumberMutasi, r.dicatatOleh]);
+        }
+        pushRow([]);
+        pushRow(['No. Request', 'Jenis', 'Pemohon', 'Kode Part', 'Nama Part', 'Qty', 'Status', 'No. Pesanan', 'Tgl Diajukan', 'Tgl Diterima']);
+        for (const r of warehouseData.tables.requests) {
+          pushRow([r.kodePermintaan, r.jenisPermintaan, r.pemohon, r.kodePart, r.namaPart, r.jumlah, r.statusPermintaan, r.kodePemesanan, r.tanggalDiajukan, r.tanggalDiterima]);
+        }
+      }
+
+      const bom = '\uFEFF';
+      const blob = new Blob([bom + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safePeriod = serviceData.periodLabel.replace(/[^a-zA-Z0-9_-]+/g, '_');
+      a.download = `MyBengkel_Laporan_${targetScope}_${safePeriod}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      adminStore.recordReportExportEvent?.({
+        actor: {
+          id:
+            user?.roleCode ||
+            (role === 'master_admin'
+              ? DUMMY_MASTER.id
+              : role === 'master_helpdesk'
+              ? 'HD-001'
+              : DUMMY_ADMIN.id),
+          nama: user?.name || 'Admin',
+          role: (role || 'admin') as any,
+        },
+        format: 'CSV',
+        scope: targetScope,
+        periodLabel: serviceData.periodLabel,
+      });
+      notify(`Laporan ${targetScope.toUpperCase()} berhasil diunduh sebagai CSV.`);
+    });
+  };
+
   const handlePinVerified = (result: ExportAuthResult) => {
     setPinModalOpen(false);
     if (result.role === 'master_admin') {
@@ -402,9 +526,21 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
     }
 
     const actor = result.actor || {
-      id: result.role === 'master_admin' ? DUMMY_MASTER.id : DUMMY_ADMIN.id,
-      nama: result.role === 'master_admin' ? DUMMY_MASTER.nama : DUMMY_ADMIN.nama,
-      role: (result.role === 'master_admin' ? 'master_admin' : 'admin') as any,
+      id:
+        user?.roleCode ||
+        (result.role === 'master_admin'
+          ? DUMMY_MASTER.id
+          : role === 'master_helpdesk'
+          ? 'HD-001'
+          : DUMMY_ADMIN.id),
+      nama:
+        user?.name ||
+        (result.role === 'master_admin'
+          ? DUMMY_MASTER.nama
+          : role === 'master_helpdesk'
+          ? 'Master Helpdesk'
+          : DUMMY_ADMIN.nama),
+      role: (result.role || role || 'admin') as any,
     };
 
     if (!pendingExportKind) {
@@ -785,53 +921,114 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
           </p>
         </div>
 
-        {/* Export All Controls (Available on /admin/laporan) */}
-        {mode === 'semua' && (
-          <div className="flex flex-wrap items-center gap-2.5">
-            <ActionButton
-              intent="start"
-              disabled={Boolean(exportingKey)}
-              onClick={() => {
-                setPendingExportKind('excel');
-                setPinModalOpen(true);
-              }}
-              className="!h-9 !text-[13px] disabled:opacity-50"
-            >
-              {exportingKey === 'all-excel' ? (
-                <span className="flex items-center gap-1.5">
-                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                  </svg>
-                  Memproses...
-                </span>
-              ) : (
-                'Export Semua Excel'
-              )}
-            </ActionButton>
-            <ActionButton
-              intent="neutral"
-              disabled={Boolean(exportingKey)}
-              onClick={() => {
-                setPendingExportKind('pdf');
-                setPinModalOpen(true);
-              }}
-              className="!h-9 !text-[13px] disabled:opacity-50"
-            >
-              {exportingKey === 'all-pdf' ? (
-                <span className="flex items-center gap-1.5">
-                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                  </svg>
-                  Memproses...
-                </span>
-              ) : (
-                'Export Semua PDF'
-              )}
-            </ActionButton>
-          </div>
-        )}
+        {/* Export Controls (Available across all report modes for Admin, Master Gudang, & Helpdesk) */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {mode === 'semua' ? (
+            <>
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() => handleDownloadCsv('all')}
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey === 'all-csv' ? 'Memproses...' : 'Download CSV'}
+              </ActionButton>
+              <ActionButton
+                intent="start"
+                disabled={Boolean(exportingKey)}
+                onClick={() => {
+                  setPendingExportKind('excel');
+                  setPinModalOpen(true);
+                }}
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey === 'all-excel' ? (
+                  <span className="flex items-center gap-1.5">
+                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Memproses...
+                  </span>
+                ) : (
+                  'Export Semua Excel'
+                )}
+              </ActionButton>
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() => {
+                  setPendingExportKind('pdf');
+                  setPinModalOpen(true);
+                }}
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey === 'all-pdf' ? (
+                  <span className="flex items-center gap-1.5">
+                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Memproses...
+                  </span>
+                ) : (
+                  'Export Semua PDF'
+                )}
+              </ActionButton>
+            </>
+          ) : (
+            <>
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() =>
+                  handleDownloadCsv(
+                    mode === 'servis'
+                      ? 'service'
+                      : mode === 'penjualan'
+                      ? 'sales'
+                      : 'warehouse'
+                  )
+                }
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey?.endsWith('-csv') ? 'Memproses...' : 'Download CSV'}
+              </ActionButton>
+              <ActionButton
+                intent="start"
+                disabled={Boolean(exportingKey)}
+                onClick={() => {
+                  if (mode === 'servis') {
+                    handleExport('servis-excel', () => exportExcelServiceReport(serviceData));
+                  } else if (mode === 'penjualan') {
+                    handleExport('penjualan-excel', () => exportExcelSalesReport(salesData));
+                  } else {
+                    handleExport('gudang-excel', () => exportExcelWarehouseReport(warehouseData));
+                  }
+                }}
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey?.endsWith('-excel') ? 'Memproses...' : 'Export Excel'}
+              </ActionButton>
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() => {
+                  if (mode === 'servis') {
+                    handleExport('servis-pdf', () => exportPdfServiceReport(serviceData));
+                  } else if (mode === 'penjualan') {
+                    handleExport('penjualan-pdf', () => exportPdfSalesReport(salesData));
+                  } else {
+                    handleExport('gudang-pdf', () => exportPdfWarehouseReport(warehouseData));
+                  }
+                }}
+                className="!h-9 !text-[13px] disabled:opacity-50"
+              >
+                {exportingKey?.endsWith('-pdf') ? 'Memproses...' : 'Export PDF'}
+              </ActionButton>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Global Unified Period Selector */}
@@ -850,6 +1047,14 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               <h2 className="text-[18px] font-bold text-[#1E2230] mt-1">Laporan Operasional Servis</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() => handleDownloadCsv('service')}
+                className="!h-8 !text-[12px] disabled:opacity-50"
+              >
+                {exportingKey === 'service-csv' ? 'Memproses...' : 'Download CSV'}
+              </ActionButton>
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
@@ -1069,6 +1274,14 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
+                onClick={() => handleDownloadCsv('sales')}
+                className="!h-8 !text-[12px] disabled:opacity-50"
+              >
+                {exportingKey === 'sales-csv' ? 'Memproses...' : 'Download CSV'}
+              </ActionButton>
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
                 onClick={() =>
                   handleExport('penjualan-excel', () =>
                     exportExcelSalesReport(salesData)
@@ -1264,6 +1477,14 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               <h2 className="text-[18px] font-bold text-[#1E2230] mt-1">Laporan Pengelolaan Gudang</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ActionButton
+                intent="neutral"
+                disabled={Boolean(exportingKey)}
+                onClick={() => handleDownloadCsv('warehouse')}
+                className="!h-8 !text-[12px] disabled:opacity-50"
+              >
+                {exportingKey === 'warehouse-csv' ? 'Memproses...' : 'Download CSV'}
+              </ActionButton>
               <ActionButton
                 intent="neutral"
                 disabled={Boolean(exportingKey)}
@@ -1933,7 +2154,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
         isOpen={printGateOpen}
         title="Verifikasi Master Gudang untuk Cetak Laporan"
         subtitle="Masukkan kredensial Master Gudang untuk mengesahkan cetak laporan resmi"
-        prototypeNote={`Prototype Master Gudang: ID "${DUMMY_MASTER.id}", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN "${DUMMY_MASTER.pin}". Kredensial Admin Gudang (${DUMMY_ADMIN_GUDANG.id}) tidak memiliki wewenang cetak.`}
+        prototypeNote={`Gunakan ID Master Gudang "${DUMMY_MASTER.id}", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN 5 digit "21098". Kredensial Admin (${DUMMY_ADMIN_GUDANG.id}) tidak memiliki wewenang cetak resmi.`}
         fields={MASTER_PRINT_GATE_FIELDS}
         submitLabel="Verifikasi & Cetak"
         errorMessage="Data verifikasi tidak cocok."

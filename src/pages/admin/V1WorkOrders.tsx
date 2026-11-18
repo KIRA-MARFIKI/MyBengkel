@@ -9,6 +9,7 @@ import {
   cancelServiceForm,
   finishWorkOrder,
 } from '../../context/AdminContext';
+import { useAuth } from '../../lib/mockAuth';
 import type { ServiceForm, ServiceFormLine, WorkOrder } from '../../data/adminDummy';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
@@ -41,10 +42,12 @@ const WO_TABS: { value: WoTab; label: string }[] = [
 
 const V1WorkOrders: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const routeParams = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
   const { workOrders, serviceForms, mechanics, parts, getPartStock } = useAdmin();
   const { notifyAction } = useActionIsland();
+  const canExecuteServis = role === 'admin';
 
   const [activeTab, setActiveTab] = useState<WoTab>('berjalan');
   const [query, setQuery] = useState<string>('');
@@ -1081,7 +1084,7 @@ const V1WorkOrders: React.FC = () => {
                   <label htmlFor="wo-mechanic" className="admin-micro text-[#646B7C]">
                     Mekanik (Opsional)
                   </label>
-                  {isBerjalan ? (
+                  {isBerjalan && canExecuteServis ? (
                     <select
                       id="wo-mechanic"
                       value={selected.mechanicId || ''}
@@ -1110,7 +1113,7 @@ const V1WorkOrders: React.FC = () => {
 
                   return (
                     <div className="space-y-5 border-t border-[#EEF0F4] pt-4">
-                      {isBerjalan && (
+                      {isBerjalan && canExecuteServis && (
                         <div ref={islandAreaRef} className="space-y-3">
                           <div className="flex items-center gap-2">
                             <button
@@ -1314,12 +1317,12 @@ const V1WorkOrders: React.FC = () => {
                                 <th className="py-2.5 px-3.5 admin-micro text-right">Harga</th>
                                 <th
                                   className={`py-2.5 px-3.5 admin-micro text-right ${
-                                    !isBerjalan ? 'rounded-r-[12px]' : ''
+                                    !(isBerjalan && canExecuteServis) ? 'rounded-r-[12px]' : ''
                                   }`}
                                 >
                                   Subtotal
                                 </th>
-                                {isBerjalan && (
+                                {isBerjalan && canExecuteServis && (
                                   <th className="py-2.5 px-3.5 admin-micro text-right rounded-r-[12px]">
                                     Aksi
                                   </th>
@@ -1330,7 +1333,7 @@ const V1WorkOrders: React.FC = () => {
                               {jasaLines.length === 0 ? (
                                 <tr className="border-b border-[#EEF0F4]">
                                   <td
-                                    colSpan={isBerjalan ? 5 : 4}
+                                    colSpan={isBerjalan && canExecuteServis ? 5 : 4}
                                     className="py-3 text-center text-[#646B7C]"
                                   >
                                     Belum ada item jasa.
@@ -1355,7 +1358,7 @@ const V1WorkOrders: React.FC = () => {
                                     <td className="px-3.5 text-right tabular-nums font-mono">
                                       <data value={l.subtotal}>{formatRupiah(l.subtotal)}</data>
                                     </td>
-                                    {isBerjalan && (
+                                    {isBerjalan && canExecuteServis && (
                                       <td className="px-3.5 text-right">
                                         <XIconButton
                                           ariaLabel="Hapus baris jasa"
@@ -1378,7 +1381,7 @@ const V1WorkOrders: React.FC = () => {
                                     <RollingNumber value={jasaSub} format={formatRupiah} />
                                   </output>
                                 </td>
-                                {isBerjalan && <td />}
+                                {isBerjalan && canExecuteServis && <td />}
                               </tr>
                             </tfoot>
                           </table>
@@ -1398,12 +1401,12 @@ const V1WorkOrders: React.FC = () => {
                                 <th className="py-2.5 px-3.5 admin-micro text-right">Harga</th>
                                 <th
                                   className={`py-2.5 px-3.5 admin-micro text-right ${
-                                    !isBerjalan ? 'rounded-r-[12px]' : ''
+                                    !(isBerjalan && canExecuteServis) ? 'rounded-r-[12px]' : ''
                                   }`}
                                 >
                                   Subtotal
                                 </th>
-                                {isBerjalan && (
+                                {isBerjalan && canExecuteServis && (
                                   <th className="py-2.5 px-3.5 admin-micro text-right rounded-r-[12px]">
                                     Aksi
                                   </th>
@@ -1414,7 +1417,7 @@ const V1WorkOrders: React.FC = () => {
                               {partLines.length === 0 ? (
                                 <tr className="border-b border-[#EEF0F4]">
                                   <td
-                                    colSpan={isBerjalan ? 5 : 4}
+                                    colSpan={isBerjalan && canExecuteServis ? 5 : 4}
                                     className="py-3 text-center text-[#646B7C]"
                                   >
                                     Belum ada item part.
@@ -1444,7 +1447,7 @@ const V1WorkOrders: React.FC = () => {
                                     <td className="px-3.5 text-right tabular-nums font-mono">
                                       <data value={l.subtotal}>{formatRupiah(l.subtotal)}</data>
                                     </td>
-                                    {isBerjalan && (
+                                    {isBerjalan && canExecuteServis && (
                                       <td className="px-3.5 text-right">
                                         <XIconButton
                                           ariaLabel="Hapus baris jasa"
@@ -1467,7 +1470,7 @@ const V1WorkOrders: React.FC = () => {
                                     <RollingNumber value={partSub} format={formatRupiah} />
                                   </output>
                                 </td>
-                                {isBerjalan && <td />}
+                                {isBerjalan && canExecuteServis && <td />}
                               </tr>
                             </tfoot>
                           </table>
@@ -1477,7 +1480,13 @@ const V1WorkOrders: React.FC = () => {
                   );
                 })()}
 
-                {isBerjalan && (
+                {isBerjalan && !canExecuteServis && (
+                  <div className="pt-4 border-t border-[#EEF0F4] text-[12px] font-medium text-[#646B7C]">
+                    Mode pantau (Read-only): Hanya Admin yang dapat mengedit atau menyelesaikan Work Order.
+                  </div>
+                )}
+
+                {isBerjalan && canExecuteServis && (
                   <div className="pt-4 border-t border-[#EEF0F4] flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <ActionButton
