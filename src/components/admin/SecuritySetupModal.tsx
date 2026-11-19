@@ -1,8 +1,78 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth, DEFAULT_BOOTSTRAP_EMAILS } from '../../lib/mockAuth';
+import {
+  useAuth,
+  DEFAULT_BOOTSTRAP_EMAILS,
+  LAST_VERIFIED_ONBOARDING_KEY,
+} from '../../lib/mockAuth';
 import { supabase } from '../../lib/supabase';
 import { ActionButton, EyeIcon, EyeOffIcon } from './ActionButton';
+
+function stripAuthErrorParamsFromUrl(keepStepPin: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const search = new URLSearchParams(window.location.search);
+    const hashRaw = window.location.hash.replace(/^#/, '');
+    const hash = new URLSearchParams(hashRaw);
+
+    const errorKeys = ['error', 'error_code', 'error_description', 'sb'];
+    const hashAuthKeys = [
+      'error',
+      'error_code',
+      'error_description',
+      'access_token',
+      'refresh_token',
+      'expires_at',
+      'expires_in',
+      'token_type',
+      'type',
+      'message',
+    ];
+
+    let changed = false;
+    for (const k of errorKeys) {
+      if (search.has(k)) {
+        search.delete(k);
+        changed = true;
+      }
+    }
+    for (const k of ['code', 'token_hash', 'access_token']) {
+      if (search.has(k)) {
+        search.delete(k);
+        changed = true;
+      }
+    }
+
+    for (const k of hashAuthKeys) {
+      if (hash.has(k)) {
+        hash.delete(k);
+        changed = true;
+      }
+    }
+
+    if (keepStepPin) {
+      if (search.get('step') !== 'pin') {
+        search.set('step', 'pin');
+        changed = true;
+      }
+    } else if (search.has('step')) {
+      search.delete('step');
+      changed = true;
+    }
+
+    if (changed) {
+      const nextSearch = search.toString();
+      const nextHash = hash.toString();
+      const nextUrl =
+        window.location.pathname +
+        (nextSearch ? `?${nextSearch}` : '') +
+        (nextHash ? `#${nextHash}` : '');
+      window.history.replaceState(null, '', nextUrl);
+    }
+  } catch {
+    // ignore history replaceState errors
+  }
+}
 
 interface SecuritySetupModalProps {
   isOpen: boolean;
@@ -53,11 +123,33 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     const stepParam = searchParams.get('step');
 
     const verifyStepAndSyncTab = async () => {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const urlError =
+        searchParams.get('error') ||
+        searchParams.get('error_code') ||
+        hashParams.get('error') ||
+        hashParams.get('error_code');
+
+      // If Step 1 & Step 2 are already completed, keep user on Step 3 and scrub any leftover URL error params
+      if (securitySetup.passwordCompleted && securitySetup.emailCompleted) {
+        if (urlError || window.location.hash.includes('error')) {
+          stripAuthErrorParamsFromUrl(true);
+        }
+        if (!cancelled) {
+          setEmailError('');
+          if (!securitySetup.pinCompleted && activeTab !== 'pin') {
+            setActiveTab('pin');
+          }
+        }
+        return;
+      }
+
       if (stepParam === 'pin') {
         let pendingEmail = '';
         let pendingPwDone = securitySetup.passwordCompleted;
         let pendingEmailSent = false;
         let pendingAlreadyVerified = securitySetup.emailCompleted;
+        let lastVerifiedEmail = '';
         try {
           const pendingRaw = localStorage.getItem('mb_pending_onboarding');
           if (pendingRaw) {
@@ -75,20 +167,37 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
               pendingAlreadyVerified = true;
             }
           }
+          const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+          if (verifiedRaw) {
+            const parsedVerified = JSON.parse(verifiedRaw);
+            if (parsedVerified?.email) {
+              lastVerifiedEmail = String(parsedVerified.email).trim().toLowerCase();
+            }
+          }
         } catch {
           // ignore storage read error
         }
 
-        if (!pendingPwDone) {
+        if (!pendingPwDone && !lastVerifiedEmail) {
+          if (urlError) stripAuthErrorParamsFromUrl(false);
           if (!cancelled) setActiveTab('password');
           return;
         }
 
-        const verifiedTarget = pendingEmail || (user?.email || '').trim().toLowerCase();
+        const verifiedTarget =
+          pendingEmail ||
+          lastVerifiedEmail ||
+          (user?.email && !DEFAULT_BOOTSTRAP_EMAILS.includes(user.email.trim().toLowerCase())
+            ? user.email.trim().toLowerCase()
+            : '');
         const isValidVerifiedTarget =
           Boolean(verifiedTarget) && !DEFAULT_BOOTSTRAP_EMAILS.includes(verifiedTarget);
 
-        if (!isValidVerifiedTarget || (!pendingEmailSent && !pendingAlreadyVerified)) {
+        if (
+          !isValidVerifiedTarget ||
+          (!pendingEmailSent && !pendingAlreadyVerified && lastVerifiedEmail !== verifiedTarget)
+        ) {
+          if (urlError) stripAuthErrorParamsFromUrl(false);
           if (!cancelled) {
             setActiveTab('email');
             setEmailError(
@@ -98,17 +207,20 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           return;
         }
 
-        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
         const codeParam = searchParams.get('code');
-        const hasAuthCallbackToken = Boolean(
-          codeParam ||
-            searchParams.get('token_hash') ||
-            searchParams.get('access_token') ||
-            hashParams.get('access_token') ||
-            hashParams.get('token_hash') ||
-            hashParams.get('type') === 'email_change' ||
-            hashParams.get('type') === 'signup'
-        );
+        const hashMessage = (hashParams.get('message') || '').toLowerCase();
+        const hasAuthCallbackToken =
+          !urlError &&
+          Boolean(
+            codeParam ||
+              searchParams.get('token_hash') ||
+              searchParams.get('access_token') ||
+              hashParams.get('access_token') ||
+              hashParams.get('token_hash') ||
+              hashParams.get('type') === 'email_change' ||
+              hashParams.get('type') === 'signup' ||
+              hashMessage.includes('confirmation link accepted')
+          );
 
         if (codeParam) {
           try {
@@ -118,16 +230,29 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           }
         }
 
-        let confirmedBySupabase = hasAuthCallbackToken || pendingAlreadyVerified;
+        let confirmedBySupabase =
+          hasAuthCallbackToken ||
+          pendingAlreadyVerified ||
+          (Boolean(lastVerifiedEmail) && lastVerifiedEmail === verifiedTarget);
+
         if (!confirmedBySupabase) {
+          try {
+            await supabase.auth.refreshSession();
+          } catch {
+            // ignore refresh failure
+          }
           try {
             const { data: userData } = await supabase.auth.getUser();
             const authUser = userData?.user;
             const authEmail = (authUser?.email || '').trim().toLowerCase();
+            const newPendingAuthEmail = String((authUser as any)?.new_email || '')
+              .trim()
+              .toLowerCase();
             if (
-              authUser?.email_confirmed_at &&
-              authEmail === verifiedTarget &&
-              !DEFAULT_BOOTSTRAP_EMAILS.includes(authEmail)
+              (authUser?.email_confirmed_at &&
+                authEmail === verifiedTarget &&
+                !DEFAULT_BOOTSTRAP_EMAILS.includes(authEmail)) ||
+              (newPendingAuthEmail === verifiedTarget && Boolean(authUser?.email_confirmed_at))
             ) {
               confirmedBySupabase = true;
             }
@@ -152,15 +277,22 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         if (cancelled) return;
 
         if (confirmedBySupabase) {
+          stripAuthErrorParamsFromUrl(true);
           if (!securitySetup.emailCompleted) {
-            markEmailVerified(verifiedTarget, role || 'admin', securitySetup.pinCompleted);
+            await markEmailVerified(verifiedTarget, role || 'admin', securitySetup.pinCompleted);
           }
+          setEmailError('');
           setActiveTab('pin');
           return;
         } else {
+          if (urlError) {
+            stripAuthErrorParamsFromUrl(false);
+          }
           setActiveTab('email');
           setEmailError(
-            `Verifikasi email untuk ${verifiedTarget} belum dikonfirmasi. Silakan klik tautan verifikasi resmi di kotak masuk email Anda terlebih dahulu.`
+            urlError
+              ? `Tautan verifikasi untuk ${verifiedTarget} sudah kedaluwarsa atau telah digunakan sebelumnya. Jika Anda sudah mengklik tautan tersebut, klik "Saya Sudah Klik Tautan di Email (Cek Status)" atau kirim ulang tautan.`
+              : `Verifikasi email untuk ${verifiedTarget} belum dikonfirmasi. Silakan klik tautan verifikasi resmi di kotak masuk email Anda terlebih dahulu.`
           );
           return;
         }
@@ -385,7 +517,8 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         !DEFAULT_BOOTSTRAP_EMAILS.includes(authEmail);
 
       if (isConfirmedInAuth) {
-        markEmailVerified(pendingEmail, role || 'admin', securitySetup.pinCompleted);
+        stripAuthErrorParamsFromUrl(true);
+        await markEmailVerified(pendingEmail, role || 'admin', securitySetup.pinCompleted);
         setActiveTab('pin');
         return;
       }
@@ -394,7 +527,8 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         p_email: pendingEmail,
       });
       if (statusData?.ok && statusData?.email_completed) {
-        markEmailVerified(pendingEmail, role || 'admin', securitySetup.pinCompleted);
+        stripAuthErrorParamsFromUrl(true);
+        await markEmailVerified(pendingEmail, role || 'admin', securitySetup.pinCompleted);
         setActiveTab('pin');
         return;
       }
@@ -413,13 +547,47 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     setPinError('');
     setPinNotice('');
 
-    if (!securitySetup.passwordCompleted) {
+    let pendingEmail = '';
+    let pendingPwDone = false;
+    let pendingEmailDone = false;
+    let lastVerifiedEmail = '';
+    try {
+      const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+      if (pendingRaw) {
+        const parsed = JSON.parse(pendingRaw);
+        pendingEmail = String(parsed?.newEmail || '').trim().toLowerCase();
+        pendingPwDone = Boolean(parsed?.passwordCompleted);
+        pendingEmailDone = Boolean(parsed?.emailCompleted);
+      }
+      const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+      if (verifiedRaw) {
+        const parsedVerified = JSON.parse(verifiedRaw);
+        lastVerifiedEmail = String(parsedVerified?.email || '').trim().toLowerCase();
+      }
+    } catch {
+      // ignore storage read error
+    }
+
+    const userEmailClean = (user?.email || '').trim().toLowerCase();
+    const verifiedEmailTarget =
+      [pendingEmail, lastVerifiedEmail, userEmailClean].find(
+        (em) => Boolean(em) && !DEFAULT_BOOTSTRAP_EMAILS.includes(em)
+      ) || '';
+
+    const isPasswordStepDone = securitySetup.passwordCompleted || pendingPwDone;
+    if (!isPasswordStepDone) {
       setPinError('Wajib menyelesaikan Langkah 1 (Ganti Kata Sandi) terlebih dahulu.');
       setActiveTab('password');
       return;
     }
 
-    if (!securitySetup.emailCompleted) {
+    const isEmailStepVerified =
+      securitySetup.emailCompleted ||
+      (pendingEmailDone && Boolean(verifiedEmailTarget)) ||
+      (Boolean(lastVerifiedEmail) && !DEFAULT_BOOTSTRAP_EMAILS.includes(lastVerifiedEmail)) ||
+      (activeTab === 'pin' && Boolean(verifiedEmailTarget));
+
+    if (!isEmailStepVerified) {
       setPinError('Wajib menyelesaikan Langkah 2 (Verifikasi Email Akun) terlebih dahulu.');
       setActiveTab('email');
       return;
@@ -446,15 +614,26 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
 
     setPinLoading(true);
     try {
-      const res = await updateSecurityPin(clean12);
+      stripAuthErrorParamsFromUrl(true);
+
+      if (!securitySetup.emailCompleted && verifiedEmailTarget) {
+        await markEmailVerified(verifiedEmailTarget, role || 'admin', false);
+      }
+
+      const res = await updateSecurityPin(clean12, {
+        allowVerifiedOnPinStep: isEmailStepVerified,
+        verifiedEmailOverride: verifiedEmailTarget || undefined,
+      });
       if (!res.ok) {
         setPinError(res.error || 'Gagal menyimpan PIN baru.');
       } else {
-        setPinNotice(`PIN 12 digit & PIN operasional 5 digit (${pin5}) telah disimpan. Keamanan akun lengkap.`);
+        setPinNotice(
+          `PIN 12 digit & PIN operasional 5 digit (${pin5}) telah disimpan. Keamanan akun lengkap.`
+        );
         setNewPin('');
         setConfirmPin('');
 
-        // Auto-redirect immediately to destination dashboard
+        // Auto-redirect immediately to clean destination dashboard without query/hash leftovers
         const dest = role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin';
         navigate(dest, { replace: true });
       }

@@ -1,7 +1,7 @@
 /* @refresh reset */
 // MOCK: not real authentication. Replace with the real backend later. Do not check passwords here.
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import {
   DUMMY_ADMIN,
@@ -88,13 +88,16 @@ interface AuthContextType {
   updateUserProfile: (profile: Partial<MockUserProfile>) => void;
   updateSecurityPassword: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   updateSecurityEmail: (newEmail: string) => Promise<{ ok: boolean; error?: string }>;
-  updateSecurityPin: (newPin: string) => Promise<{ ok: boolean; error?: string }>;
+  updateSecurityPin: (
+    newPin: string,
+    options?: { allowVerifiedOnPinStep?: boolean; verifiedEmailOverride?: string }
+  ) => Promise<{ ok: boolean; error?: string }>;
   refreshSecurityStatus: () => Promise<void>;
   markEmailVerified: (
     verifiedEmail: string,
     verifiedRole?: UserRole,
     pinAlreadyCompleted?: boolean
-  ) => void;
+  ) => Promise<void> | void;
   requestPasswordReset: (email: string) => Promise<{ ok: boolean; message: string; error?: string }>;
   resetPasswordWithToken: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   requestPinReset: (
@@ -708,6 +711,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const hashMessage = (hashParams.get('message') || '').toLowerCase();
     const hasAuthCallbackToken = Boolean(
       params.get('code') ||
         params.get('token_hash') ||
@@ -715,32 +719,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hashParams.get('access_token') ||
         hashParams.get('token_hash') ||
         hashParams.get('type') === 'email_change' ||
-        hashParams.get('type') === 'signup'
+        hashParams.get('type') === 'signup' ||
+        hashMessage.includes('confirmation link accepted')
     );
 
     if (params.get('step') === 'pin') {
       try {
         const pendingRaw = localStorage.getItem('mb_pending_onboarding');
         const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-        const targetEmail = String(pending?.newEmail || '').trim().toLowerCase();
+        const lastVerifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+        const lastVerified = lastVerifiedRaw ? JSON.parse(lastVerifiedRaw) : null;
+        const targetEmail = String(pending?.newEmail || lastVerified?.email || '')
+          .trim()
+          .toLowerCase();
         const hasValidStep1AndStep2 =
-          Boolean(pending?.passwordCompleted) &&
-          Boolean(pending?.emailSentAt) &&
+          (Boolean(pending?.passwordCompleted) || Boolean(lastVerified?.email)) &&
+          (Boolean(pending?.emailSentAt) || Boolean(pending?.emailCompleted) || Boolean(lastVerified?.email)) &&
           Boolean(targetEmail) &&
           !DEFAULT_BOOTSTRAP_EMAILS.includes(targetEmail);
 
         if (hasValidStep1AndStep2) {
           const targetRole: 'admin' | 'master_admin' | 'master_helpdesk' =
-            pending.role === 'master_admin' ||
-            pending.role === 'master_helpdesk' ||
-            pending.role === 'admin'
+            pending?.role === 'master_admin' ||
+            pending?.role === 'master_helpdesk' ||
+            pending?.role === 'admin'
               ? pending.role
+              : lastVerified?.role === 'master_admin' ||
+                lastVerified?.role === 'master_helpdesk' ||
+                lastVerified?.role === 'admin'
+              ? lastVerified.role
               : initialRole === 'master_admin' ||
                 initialRole === 'master_helpdesk' ||
                 initialRole === 'admin'
               ? initialRole
               : 'admin';
-          const isEmailVerifiedCallback = hasAuthCallbackToken || Boolean(pending?.emailCompleted);
+          const isLastVerifiedMatch =
+            Boolean(lastVerified?.email) &&
+            String(lastVerified.email).trim().toLowerCase() === targetEmail;
+          const isEmailVerifiedCallback =
+            hasAuthCallbackToken || Boolean(pending?.emailCompleted) || isLastVerifiedMatch;
           const sessionEmail = isEmailVerifiedCallback
             ? targetEmail
             : initialUser?.email || targetEmail;
@@ -777,6 +794,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [securitySetup, setSecuritySetup] = useState<SecuritySetupProgress>(() =>
     loadStoredSecuritySetup(initialUser?.email, initialRole)
   );
+  const emailSyncPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (user?.email && (role === 'admin' || role === 'master_admin' || role === 'master_helpdesk')) {
@@ -817,8 +835,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    if (emailSyncPromiseRef.current) {
+      try {
+        await emailSyncPromiseRef.current;
+      } catch {
+        // ignore
+      }
+    }
+
     const cleanCurrentEmail = user.email.trim().toLowerCase();
     const isBootstrapEmail = DEFAULT_BOOTSTRAP_EMAILS.includes(cleanCurrentEmail);
+
+    let localVerifiedEmailMatch = false;
+    try {
+      const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+      const lastVerifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+      const lastVerified = lastVerifiedRaw ? JSON.parse(lastVerifiedRaw) : null;
+      if (
+        !isBootstrapEmail &&
+        ((Boolean(pending?.emailCompleted) &&
+          String(pending?.newEmail || '').trim().toLowerCase() === cleanCurrentEmail) ||
+          (Boolean(lastVerified?.email) &&
+            String(lastVerified.email).trim().toLowerCase() === cleanCurrentEmail))
+      ) {
+        localVerifiedEmailMatch = true;
+      }
+    } catch {
+      // ignore
+    }
 
     try {
       let { data, error } = await supabase.rpc('get_account_security_status', {
@@ -834,8 +879,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error = zeroArgRes.error;
       }
       if (!error && data?.ok) {
-        const pwDone = Boolean(data.password_completed);
-        const emDone = pwDone && !isBootstrapEmail && Boolean(data.email_completed);
+        const pwDone = Boolean(data.password_completed) || localVerifiedEmailMatch;
+        const emDone =
+          pwDone && !isBootstrapEmail && (Boolean(data.email_completed) || localVerifiedEmailMatch);
         const pinDone = pwDone && emDone && Boolean(data.pin_completed);
         const doneCount = (pwDone ? 1 : 0) + (emDone ? 1 : 0) + (pinDone ? 1 : 0);
         const mustComplete =
@@ -1031,7 +1077,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
 
-    // Persist target email + password in pending storage before email verification call
+    const currentAuthEmail = (
+      user?.email ||
+      (role === 'master_helpdesk'
+        ? SEED_ACCOUNTS.helpdesk.email
+        : role === 'master_admin'
+        ? SEED_ACCOUNTS.masterAdmin.email
+        : SEED_ACCOUNTS.admin.email)
+    )
+      .trim()
+      .toLowerCase();
+
+    // Persist target email + password + previousEmail in pending storage before email verification call
     try {
       const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
       const prevPending = prevPendingRaw ? JSON.parse(prevPendingRaw) : {};
@@ -1040,6 +1097,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         JSON.stringify({
           ...prevPending,
           role: role || 'admin',
+          previousEmail: prevPending.previousEmail || currentAuthEmail,
           newEmail,
           newPassword: pendingPassword || prevPending.newPassword || '',
           passwordCompleted: true,
@@ -1064,16 +1122,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     let requestError: string | null = null;
-    const currentAuthEmail = (
-      user?.email ||
-      (role === 'master_helpdesk'
-        ? SEED_ACCOUNTS.helpdesk.email
-        : role === 'master_admin'
-        ? SEED_ACCOUNTS.masterAdmin.email
-        : SEED_ACCOUNTS.admin.email)
-    )
-      .trim()
-      .toLowerCase();
 
     try {
       // Lock Step 3 in PostgreSQL by recording pending_email & setting email_verified_at = NULL
@@ -1163,17 +1211,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { ok: true };
   };
 
-  const markEmailVerified = (
+  const markEmailVerified = async (
     verifiedEmail: string,
     verifiedRole?: UserRole,
     pinAlreadyCompleted: boolean = false
-  ) => {
+  ): Promise<void> => {
     const cleanEmail = verifiedEmail.trim().toLowerCase();
     if (!cleanEmail || DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail)) {
       return;
     }
     const targetRole: UserRole = verifiedRole || role || 'admin';
-    const oldEmail = (user?.email || '').trim().toLowerCase();
+    let oldEmail = (user?.email || '').trim().toLowerCase();
+    try {
+      const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
+      if (prevPendingRaw) {
+        const prevPending = JSON.parse(prevPendingRaw);
+        if (prevPending?.previousEmail) {
+          oldEmail = String(prevPending.previousEmail).trim().toLowerCase();
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const nextUser: MockUserProfile = {
       ...(user || {}),
       email: cleanEmail,
@@ -1188,25 +1248,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.setItem(ROLE_KEY, targetRole);
       sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
     }
-
-    // Persist email verification state to Supabase DB
-    void (async () => {
-      try {
-        const { error: recErr } = await supabase.rpc('record_security_email_changed', {
-          p_new_email: cleanEmail,
-          p_old_email: oldEmail || null,
-        });
-        if (
-          recErr &&
-          (recErr.code === 'PGRST202' ||
-            String(recErr.message || '').includes('Could not find the function'))
-        ) {
-          await supabase.rpc('record_security_email_changed');
-        }
-      } catch {
-        // ignore network error
-      }
-    })();
 
     const nextSetup: SecuritySetupProgress = pinAlreadyCompleted
       ? {
@@ -1256,25 +1297,129 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // ignore
     }
+
+    // Persist email verification state to Supabase DB and track promise so PIN save can await it
+    const syncTask = (async () => {
+      try {
+        const { error: recErr } = await supabase.rpc('record_security_email_changed', {
+          p_new_email: cleanEmail,
+          p_old_email: oldEmail || null,
+        });
+        if (
+          recErr &&
+          (recErr.code === 'PGRST202' ||
+            String(recErr.message || '').includes('Could not find the function'))
+        ) {
+          await supabase.rpc('record_security_email_changed');
+        }
+      } catch {
+        // ignore network error
+      }
+    })();
+    emailSyncPromiseRef.current = syncTask;
+    await syncTask;
   };
 
   const updateSecurityPin = async (
-    newPin: string
+    newPin: string,
+    options?: { allowVerifiedOnPinStep?: boolean; verifiedEmailOverride?: string }
   ): Promise<{ ok: boolean; error?: string }> => {
     const clean12 = newPin.replace(/\D/g, '');
-    if (role === 'admin' || role === 'master_admin' || role === 'master_helpdesk') {
-      if (!securitySetup.passwordCompleted) {
+
+    if (emailSyncPromiseRef.current) {
+      try {
+        await emailSyncPromiseRef.current;
+      } catch {
+        // ignore
+      }
+    }
+
+    let pendingEmail = '';
+    let pendingPassword = '';
+    let pendingRole: UserRole = null;
+    let pendingPwDone = false;
+    let pendingEmailDone = false;
+    let pendingPrevEmail = '';
+    let lastVerifiedEmail = '';
+    try {
+      const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+      if (pendingRaw) {
+        const parsed = JSON.parse(pendingRaw);
+        pendingEmail = String(parsed.newEmail || '').trim().toLowerCase();
+        pendingPassword = String(parsed.newPassword || '');
+        pendingPwDone = Boolean(parsed.passwordCompleted);
+        pendingEmailDone = Boolean(parsed.emailCompleted);
+        pendingPrevEmail = String(parsed.previousEmail || '').trim().toLowerCase();
+        if (parsed.role) pendingRole = parsed.role as UserRole;
+      }
+      if (!pendingPassword) {
+        pendingPassword = localStorage.getItem(LAST_ONBOARDING_PASSWORD_KEY) || '';
+      }
+      const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
+      if (verifiedRaw) {
+        const parsedVerified = JSON.parse(verifiedRaw);
+        lastVerifiedEmail = String(parsedVerified.email || '').trim().toLowerCase();
+        if (!pendingEmail) {
+          pendingEmail = lastVerifiedEmail;
+        }
+        if (!pendingRole && parsedVerified.role) {
+          pendingRole = parsedVerified.role as UserRole;
+        }
+      }
+    } catch {
+      // ignore storage read errors
+    }
+
+    const overrideEmail = (options?.verifiedEmailOverride || '').trim().toLowerCase();
+    const userEmailClean = (user?.email || '').trim().toLowerCase();
+
+    const firstNonBootstrap = (...candidates: Array<string | null | undefined>): string => {
+      for (const candidate of candidates) {
+        const c = (candidate || '').trim().toLowerCase();
+        if (c && !DEFAULT_BOOTSTRAP_EMAILS.includes(c)) {
+          return c;
+        }
+      }
+      return '';
+    };
+
+    const preferredNonBootstrapEmail = firstNonBootstrap(
+      overrideEmail,
+      pendingEmail,
+      lastVerifiedEmail,
+      userEmailClean
+    );
+
+    const isPrivilegedRole =
+      role === 'admin' || role === 'master_admin' || role === 'master_helpdesk';
+
+    if (isPrivilegedRole) {
+      const isPasswordDone =
+        securitySetup.passwordCompleted ||
+        pendingPwDone ||
+        (Boolean(pendingPassword) &&
+          !['admin123', 'masteradmin123', 'helpdesk123'].includes(pendingPassword.trim()));
+
+      if (!isPasswordDone) {
         return {
           ok: false,
           error: 'Wajib menyelesaikan Langkah 1 (Ganti Kata Sandi) terlebih dahulu.',
         };
       }
-      if (!securitySetup.emailCompleted) {
+
+      const isStep2Done =
+        securitySetup.emailCompleted ||
+        Boolean(options?.allowVerifiedOnPinStep) ||
+        (pendingEmailDone && Boolean(preferredNonBootstrapEmail)) ||
+        Boolean(lastVerifiedEmail && !DEFAULT_BOOTSTRAP_EMAILS.includes(lastVerifiedEmail));
+
+      if (!isStep2Done) {
         return {
           ok: false,
           error: 'Wajib menyelesaikan Langkah 2 (Verifikasi Email Akun) terlebih dahulu.',
         };
       }
+
       if (clean12.length !== 12 || !/^\d{12}$/.test(clean12)) {
         return { ok: false, error: 'PIN baru wajib terdiri dari tepat 12 digit angka.' };
       }
@@ -1287,40 +1432,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else if (clean12.length < 4 || clean12.length > 12 || !/^\d+$/.test(clean12)) {
       return { ok: false, error: 'PIN harus berupa angka antara 4 hingga 12 digit.' };
     }
+
     const cleanPin = clean12;
     const pin5 = clean12.slice(-5).split('').reverse().join('');
-
-    let pendingEmail = '';
-    let pendingPassword = '';
-    let pendingRole: UserRole = null;
-    try {
-      const pendingRaw = localStorage.getItem('mb_pending_onboarding');
-      if (pendingRaw) {
-        const parsed = JSON.parse(pendingRaw);
-        pendingEmail = String(parsed.newEmail || '').trim().toLowerCase();
-        pendingPassword = String(parsed.newPassword || '');
-        if (parsed.role) pendingRole = parsed.role as UserRole;
-      }
-      if (!pendingPassword) {
-        pendingPassword = localStorage.getItem(LAST_ONBOARDING_PASSWORD_KEY) || '';
-      }
-      if (!pendingEmail) {
-        const verifiedRaw = localStorage.getItem(LAST_VERIFIED_ONBOARDING_KEY);
-        if (verifiedRaw) {
-          const parsedVerified = JSON.parse(verifiedRaw);
-          pendingEmail = String(parsedVerified.email || '').trim().toLowerCase();
-          if (!pendingRole && parsedVerified.role) {
-            pendingRole = parsedVerified.role as UserRole;
-          }
-        }
-      }
-    } catch {
-      // ignore storage read errors
-    }
-
     const currentRole = role || pendingRole || 'admin';
-    let resolvedEmail: string | null =
-      pendingEmail || (user?.email ? user.email.trim().toLowerCase() : '') || null;
+    let resolvedEmail: string | null = preferredNonBootstrapEmail || pendingEmail || userEmailClean || null;
 
     if (!pendingPassword && resolvedEmail) {
       const existingManaged = getManagedAccounts().find(
@@ -1331,29 +1447,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    let sessionEmail = '';
     try {
       const {
         data: { session },
       } = await safeGetSession();
 
-      if (!session && pendingEmail && pendingPassword) {
+      if (session?.user?.email) {
+        sessionEmail = session.user.email.trim().toLowerCase();
+      } else if (preferredNonBootstrapEmail && pendingPassword) {
         const { data: signInData } = await establishFreshSupabaseSession(
-          pendingEmail,
+          preferredNonBootstrapEmail,
           pendingPassword
         );
         if (signInData?.user?.email) {
-          resolvedEmail = signInData.user.email.trim().toLowerCase();
+          sessionEmail = signInData.user.email.trim().toLowerCase();
         }
-      } else if (session?.user?.email) {
-        resolvedEmail = session.user.email.trim().toLowerCase();
       }
     } catch {
       // Continue cleanly; SECURITY DEFINER RPC accepts p_email directly
     }
 
-    const targetEmailKey = (resolvedEmail || pendingEmail || user?.email || '')
+    // NEVER let a stale bootstrap session email overwrite a verified non-bootstrap email!
+    const targetEmailKey = (
+      preferredNonBootstrapEmail ||
+      firstNonBootstrap(sessionEmail, resolvedEmail, pendingEmail, userEmailClean) ||
+      sessionEmail ||
+      resolvedEmail ||
+      pendingEmail ||
+      userEmailClean
+    )
       .trim()
       .toLowerCase();
+
     if (!targetEmailKey) {
       return { ok: false, error: 'Email akun tidak ditemukan untuk menyimpan PIN.' };
     }
@@ -1365,6 +1491,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? currentRole
         : 'admin';
 
+    // Sync Step 2 email confirmation record to PostgreSQL right before PIN RPC if non-bootstrap email is known
+    if (isPrivilegedRole && !DEFAULT_BOOTSTRAP_EMAILS.includes(targetEmailKey)) {
+      try {
+        await supabase.rpc('record_security_email_changed', {
+          p_new_email: targetEmailKey,
+          p_old_email: pendingPrevEmail || (DEFAULT_BOOTSTRAP_EMAILS.includes(sessionEmail) ? sessionEmail : null),
+        });
+      } catch {
+        // Ignore if not found; set_account_security_pin will also synchronize
+      }
+    }
+
     let rpcData: any = null;
     let rpcError: any = null;
 
@@ -1373,9 +1511,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       p_role: roleForAcc,
       p_email: targetEmailKey,
       p_password: pendingPassword || null,
+      p_email_verified: true,
     });
     rpcData = firstAttempt.data;
     rpcError = firstAttempt.error;
+
+    if (
+      rpcError &&
+      (rpcError.code === 'PGRST202' ||
+        String(rpcError.message || '').includes('Could not find the function'))
+    ) {
+      const secondAttempt = await supabase.rpc('set_account_security_pin', {
+        p_new_pin: cleanPin,
+        p_role: roleForAcc,
+        p_email: targetEmailKey,
+        p_password: pendingPassword || null,
+      });
+      rpcData = secondAttempt.data;
+      rpcError = secondAttempt.error;
+    }
 
     if (
       rpcError &&
