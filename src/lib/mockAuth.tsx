@@ -21,7 +21,12 @@ import {
   getRoleDisplayName,
 } from './mockCredentials';
 import { recordAuditEvent } from '../context/AdminContext';
-import { supabase } from './supabase';
+import {
+  supabase,
+  safeGetSession,
+  clearStaleSupabaseAuthStorage,
+  isRefreshTokenError,
+} from './supabase';
 
 export {
   DUMMY_ADMIN,
@@ -36,6 +41,9 @@ export {
   deriveFiveDigitPin,
   formatRoleBadgeLabel,
   getRoleDisplayName,
+  safeGetSession,
+  clearStaleSupabaseAuthStorage,
+  isRefreshTokenError,
 };
 
 export type UserRole = 'admin' | 'master_admin' | 'customer' | 'master_helpdesk' | null;
@@ -96,13 +104,17 @@ interface AuthContextType {
 }
 
 export const DEFAULT_BOOTSTRAP_EMAILS = [
+  'admin@mubengkel.com',
   'admin@mybengkel.com',
+  'admin@mybengkel.id',
   'masteradmin@mybengkel.com',
+  'masteradmin@mubengkel.com',
+  'helpdesk@mybengkel.com',
+  'helpdesk@mubengkel.com',
   'helpdesk@gmail.com',
   'mybenngkeladmin@mybengkel.com',
   'masteradminmybengkel@mybengkel.com',
   'helpdeskmybengkel@mybengkel.com',
-  'admin@mybengkel.id',
 ];
 
 const ROLE_KEY = 'mock-auth-role';
@@ -305,36 +317,22 @@ export const authenticateCredentials = (
     };
   }
 
-  // 1. Check Master Helpdesk (Official requested account + legacy fallback)
+  // 1. Check Master Helpdesk (helpdesk@mybengkel.com, helpdesk@mubengkel.com, helpdesk@gmail.com)
   if (
-    cleanEmail === SEED_ACCOUNTS.helpdesk.email.toLowerCase() &&
-    password === SEED_ACCOUNTS.helpdesk.password &&
-    (cleanPin === SEED_ACCOUNTS.helpdesk.pin || cleanPin === SEED_ACCOUNTS.helpdesk.pin5)
+    ['helpdesk@mybengkel.com', 'helpdesk@mubengkel.com', 'helpdesk@gmail.com'].includes(cleanEmail)
   ) {
-    return {
-      ok: true,
-      role: 'master_helpdesk',
-      profile: {
-        email: SEED_ACCOUNTS.helpdesk.email,
-        name: SEED_ACCOUNTS.helpdesk.nama,
-        roleCode: SEED_ACCOUNTS.helpdesk.id,
-        pin5: SEED_ACCOUNTS.helpdesk.pin5,
-      },
-    };
-  }
-  if (cleanEmail === DEFAULT_HELPDESK_EMAIL.toLowerCase()) {
     if (
-      password === DUMMY_MASTER_HELPDESK.password &&
-      (cleanPin === DUMMY_MASTER_HELPDESK.pin || cleanPin === DUMMY_MASTER_HELPDESK.pin5)
+      password === SEED_ACCOUNTS.helpdesk.password &&
+      (cleanPin === SEED_ACCOUNTS.helpdesk.pin || cleanPin === SEED_ACCOUNTS.helpdesk.pin5)
     ) {
       return {
         ok: true,
         role: 'master_helpdesk',
         profile: {
-          email: DEFAULT_HELPDESK_EMAIL,
-          name: DUMMY_MASTER_HELPDESK.nama,
-          roleCode: DUMMY_MASTER_HELPDESK.id,
-          pin5: DUMMY_MASTER_HELPDESK.pin5,
+          email: cleanEmail,
+          name: SEED_ACCOUNTS.helpdesk.nama,
+          roleCode: SEED_ACCOUNTS.helpdesk.id,
+          pin5: SEED_ACCOUNTS.helpdesk.pin5,
         },
       };
     }
@@ -344,57 +342,47 @@ export const authenticateCredentials = (
     };
   }
 
-  // 2. Check Master Admin (Official requested account)
-  if (
-    cleanEmail === SEED_ACCOUNTS.masterAdmin.email.toLowerCase() &&
-    password === SEED_ACCOUNTS.masterAdmin.password &&
-    (cleanPin === SEED_ACCOUNTS.masterAdmin.pin || cleanPin === SEED_ACCOUNTS.masterAdmin.pin5)
-  ) {
-    return {
-      ok: true,
-      role: 'master_admin',
-      profile: {
-        email: SEED_ACCOUNTS.masterAdmin.email,
-        name: SEED_ACCOUNTS.masterAdmin.nama,
-        roleCode: SEED_ACCOUNTS.masterAdmin.id,
-        pin5: SEED_ACCOUNTS.masterAdmin.pin5,
-      },
-    };
-  }
-
-  // 3. Check Admin (Official requested account)
-  if (
-    cleanEmail === SEED_ACCOUNTS.admin.email.toLowerCase() &&
-    password === SEED_ACCOUNTS.admin.password &&
-    (cleanPin === SEED_ACCOUNTS.admin.pin || cleanPin === SEED_ACCOUNTS.admin.pin5)
-  ) {
-    return {
-      ok: true,
-      role: 'admin',
-      profile: {
-        email: SEED_ACCOUNTS.admin.email,
-        name: SEED_ACCOUNTS.admin.nama,
-        roleCode: SEED_ACCOUNTS.admin.id,
-        pin5: SEED_ACCOUNTS.admin.pin5,
-      },
-    };
-  }
-
-  // Legacy Admin check (admin@mybengkel.id)
-  const isTryingAdmin = cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase();
-
-  if (isTryingAdmin) {
+  // 2. Check Master Admin (masteradmin@mybengkel.com, masteradmin@mubengkel.com)
+  if (['masteradmin@mybengkel.com', 'masteradmin@mubengkel.com'].includes(cleanEmail)) {
     if (
-      cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() &&
-      password === DUMMY_ADMIN_PASSWORD &&
-      (cleanPin === DUMMY_ADMIN_LOGIN_PIN || cleanPin === DUMMY_ADMIN_PIN || cleanPin === DUMMY_ADMIN.pin5)
+      password === SEED_ACCOUNTS.masterAdmin.password &&
+      (cleanPin === SEED_ACCOUNTS.masterAdmin.pin || cleanPin === SEED_ACCOUNTS.masterAdmin.pin5)
+    ) {
+      return {
+        ok: true,
+        role: 'master_admin',
+        profile: {
+          email: cleanEmail,
+          name: SEED_ACCOUNTS.masterAdmin.nama,
+          roleCode: SEED_ACCOUNTS.masterAdmin.id,
+          pin5: SEED_ACCOUNTS.masterAdmin.pin5,
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: 'Email, kata sandi, atau PIN tidak sesuai.',
+    };
+  }
+
+  // 3. Check Admin (admin@mubengkel.com, admin@mybengkel.com, admin@mybengkel.id)
+  if (
+    ['admin@mubengkel.com', 'admin@mybengkel.com', DEFAULT_ADMIN_EMAIL.toLowerCase()].includes(
+      cleanEmail
+    )
+  ) {
+    if (
+      password === SEED_ACCOUNTS.admin.password &&
+      (cleanPin === SEED_ACCOUNTS.admin.pin ||
+        cleanPin === SEED_ACCOUNTS.admin.pin5 ||
+        cleanPin === DUMMY_ADMIN_PIN)
     ) {
       return {
         ok: true,
         role: 'admin',
         profile: {
-          email: DEFAULT_ADMIN_EMAIL,
-          name: 'Admin MyBengkel',
+          email: cleanEmail,
+          name: SEED_ACCOUNTS.admin.nama,
           roleCode: SEED_ACCOUNTS.admin.id,
           pin5: SEED_ACCOUNTS.admin.pin5,
         },
@@ -441,6 +429,32 @@ export const authenticateCredentials = (
   };
 };
 
+async function establishFreshSupabaseSession(email: string, password: string) {
+  try {
+    // Ensure any stale/revoked refresh token is cleared before establishing a new session
+    await safeGetSession();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error && isRefreshTokenError(error)) {
+      clearStaleSupabaseAuthStorage();
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      return await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+    }
+    return { data, error };
+  } catch (err: unknown) {
+    if (isRefreshTokenError(err)) {
+      clearStaleSupabaseAuthStorage();
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    }
+    return { data: null, error: err };
+  }
+}
+
 export const authenticateCredentialsAsync = async (
   email: string,
   password: string,
@@ -460,6 +474,9 @@ export const authenticateCredentialsAsync = async (
       error: 'Akun ini telah dihapus oleh administrator.',
     };
   }
+
+  // Proactively clean any broken/expired refresh token before calling RPC or signInWithPassword
+  await safeGetSession();
 
   const isDefaultPw = ['admin123', 'masteradmin123', 'helpdesk123'].includes(password.trim());
   const isDefaultEmail = DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail);
@@ -556,14 +573,7 @@ export const authenticateCredentialsAsync = async (
         }
 
         // Best-effort Supabase Auth JWT hydration (safe after verify_account_login_and_pin repairs auth.users)
-        try {
-          await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
-        } catch {
-          // Ignore if email/password differs from supabase session token
-        }
+        await establishFreshSupabaseSession(cleanEmail, password);
 
         return {
           ok: true,
@@ -605,11 +615,7 @@ export const authenticateCredentialsAsync = async (
               totalSteps: 3,
             });
           }
-          try {
-            await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-          } catch {
-            // Best-effort session hydration
-          }
+          await establishFreshSupabaseSession(cleanEmail, password);
           return localSeedCheck;
         }
         return { ok: false, error: msg };
@@ -655,11 +661,7 @@ export const authenticateCredentialsAsync = async (
 
   const localRes = authenticateCredentials(email, password, pin);
   if (localRes.ok) {
-    try {
-      await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-    } catch {
-      // Best-effort session hydration
-    }
+    await establishFreshSupabaseSession(cleanEmail, password);
   }
   if (localRes.ok && localRes.role && localRes.role !== 'customer') {
     const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin;
@@ -700,10 +702,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   let initialUser: MockUserProfile | null = loadStoredUser();
 
   // If returning from email confirmation redirect (/admin?step=pin) in a new tab,
-  // strictly verify that Step 1 (passwordCompleted) and Step 2 (newEmail & emailSentAt) were completed
-  // before hydrating emailCompleted = true.
+  // restore the onboarding user/role session so route guards don't drop the tab,
+  // and ONLY mark emailCompleted = true if a real Supabase verification callback token is present
+  // (or emailCompleted was already verified).
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const hasAuthCallbackToken = Boolean(
+      params.get('code') ||
+        params.get('token_hash') ||
+        params.get('access_token') ||
+        hashParams.get('access_token') ||
+        hashParams.get('token_hash') ||
+        hashParams.get('type') === 'email_change' ||
+        hashParams.get('type') === 'signup'
+    );
+
     if (params.get('step') === 'pin') {
       try {
         const pendingRaw = localStorage.getItem('mb_pending_onboarding');
@@ -726,24 +740,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 initialRole === 'admin'
               ? initialRole
               : 'admin';
+          const isEmailVerifiedCallback = hasAuthCallbackToken || Boolean(pending?.emailCompleted);
+          const sessionEmail = isEmailVerifiedCallback
+            ? targetEmail
+            : initialUser?.email || targetEmail;
           initialRole = targetRole;
           initialUser = {
             ...(initialUser || {}),
-            email: targetEmail,
+            email: sessionEmail,
             name: initialUser?.name || getRoleDisplayName(targetRole),
           };
           if (typeof sessionStorage !== 'undefined') {
             sessionStorage.setItem(ROLE_KEY, targetRole);
             sessionStorage.setItem(USER_KEY, JSON.stringify(initialUser));
           }
-          const existingSetup = loadStoredSecuritySetup(targetEmail, targetRole);
-          saveStoredSecuritySetup(targetEmail, {
+          const existingSetup = loadStoredSecuritySetup(sessionEmail, targetRole);
+          saveStoredSecuritySetup(sessionEmail, {
             ...existingSetup,
             mustCompleteSetup: !existingSetup.pinCompleted,
             passwordCompleted: true,
-            emailCompleted: true,
-            pinCompleted: existingSetup.pinCompleted,
-            completedCount: existingSetup.pinCompleted ? 3 : 2,
+            emailCompleted: isEmailVerifiedCallback ? true : existingSetup.emailCompleted,
+            pinCompleted: isEmailVerifiedCallback ? existingSetup.pinCompleted : false,
+            completedCount: isEmailVerifiedCallback ? (existingSetup.pinCompleted ? 3 : 2) : 1,
             totalSteps: 3,
           });
         }
@@ -766,6 +784,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSecuritySetup(stored);
     }
   }, [user?.email, role]);
+
+  // Safely validate initial Supabase Auth session & listen for TOKEN_REFRESH_FAILED
+  useEffect(() => {
+    let active = true;
+    void safeGetSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      const evtName = String(event || '');
+      if (evtName === 'TOKEN_REFRESH_FAILED' || (evtName === 'SIGNED_OUT' && !session)) {
+        clearStaleSupabaseAuthStorage();
+      }
+    });
+
+    return () => {
+      active = false;
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
 
   const refreshSecurityStatus = async () => {
     if (!user?.email || !role || role === 'customer') {
@@ -870,7 +907,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : '');
 
     try {
-      let { data: sess } = await supabase.auth.getSession();
+      let { data: sess } = await safeGetSession();
       if (!sess?.session) {
         const defaultBootstrapPw =
           role === 'master_helpdesk'
@@ -878,10 +915,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : role === 'master_admin'
             ? SEED_ACCOUNTS.masterAdmin.password
             : SEED_ACCOUNTS.admin.password;
-        const { data: signInData } = await supabase.auth.signInWithPassword({
-          email: currentAuthEmail,
-          password: defaultBootstrapPw,
-        });
+        const { data: signInData } = await establishFreshSupabaseSession(
+          currentAuthEmail,
+          defaultBootstrapPw
+        );
         if (signInData?.session) {
           sess = { session: signInData.session };
         }
@@ -1027,21 +1064,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     let requestError: string | null = null;
+    const currentAuthEmail = (
+      user?.email ||
+      (role === 'master_helpdesk'
+        ? SEED_ACCOUNTS.helpdesk.email
+        : role === 'master_admin'
+        ? SEED_ACCOUNTS.masterAdmin.email
+        : SEED_ACCOUNTS.admin.email)
+    )
+      .trim()
+      .toLowerCase();
+
+    try {
+      // Lock Step 3 in PostgreSQL by recording pending_email & setting email_verified_at = NULL
+      await supabase.rpc('record_security_email_pending', {
+        p_pending_email: newEmail,
+        p_current_email: currentAuthEmail,
+      });
+    } catch {
+      // ignore if RPC not yet applied
+    }
 
     try {
       // Ensure an active Supabase Auth session exists for the current user before calling updateUser
-      const { data: sessData } = await supabase.auth.getSession();
+      const { data: sessData } = await safeGetSession();
       if (!sessData?.session) {
-        const currentAuthEmail = (
-          user?.email ||
-          (role === 'master_helpdesk'
-            ? SEED_ACCOUNTS.helpdesk.email
-            : role === 'master_admin'
-            ? SEED_ACCOUNTS.masterAdmin.email
-            : SEED_ACCOUNTS.admin.email)
-        )
-          .trim()
-          .toLowerCase();
         const defaultBootstrapPw =
           role === 'master_helpdesk'
             ? SEED_ACCOUNTS.helpdesk.password
@@ -1052,10 +1099,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           new Set([pendingPassword, defaultBootstrapPw].filter(Boolean))
         );
         for (const candidatePw of candidatePasswords) {
-          const { data: signInData } = await supabase.auth.signInWithPassword({
-            email: currentAuthEmail,
-            password: candidatePw,
-          });
+          const { data: signInData } = await establishFreshSupabaseSession(
+            currentAuthEmail,
+            candidatePw
+          );
           if (signInData?.session) break;
         }
       }
@@ -1287,13 +1334,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await safeGetSession();
 
       if (!session && pendingEmail && pendingPassword) {
-        const { data: signInData } = await supabase.auth.signInWithPassword({
-          email: pendingEmail,
-          password: pendingPassword,
-        });
+        const { data: signInData } = await establishFreshSupabaseSession(
+          pendingEmail,
+          pendingPassword
+        );
         if (signInData?.user?.email) {
           resolvedEmail = signInData.user.email.trim().toLowerCase();
         }
@@ -1841,6 +1888,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.removeItem(ROLE_KEY);
       sessionStorage.removeItem(USER_KEY);
     }
+    clearStaleSupabaseAuthStorage();
+    void supabase.auth.signOut({ scope: 'local' }).catch(() => {});
   };
 
   const adminEmail =

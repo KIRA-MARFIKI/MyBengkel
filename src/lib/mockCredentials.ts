@@ -102,13 +102,13 @@ export const DUMMY_MASTER = {
 
 export const DUMMY_MASTER_GUDANG = DUMMY_MASTER;
 
-export const DEFAULT_HELPDESK_EMAIL = 'helpdesk@gmail.com';
+export const DEFAULT_HELPDESK_EMAIL = 'helpdesk@mybengkel.com';
 
 export const SEED_ACCOUNTS = {
   admin: {
     id: 'AD-001',
     nama: 'Admin MyBengkel',
-    email: 'admin@mybengkel.com',
+    email: 'admin@mubengkel.com',
     password: 'admin123',
     pin: '123456789012',
     pin5: deriveFiveDigitPin('123456789012'),
@@ -126,7 +126,7 @@ export const SEED_ACCOUNTS = {
   helpdesk: {
     id: 'HD-001',
     nama: 'Master Helpdesk MyBengkel',
-    email: 'helpdesk@gmail.com',
+    email: 'helpdesk@mybengkel.com',
     password: 'helpdesk123',
     pin: '123456789012',
     pin5: deriveFiveDigitPin('123456789012'),

@@ -29,62 +29,6 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     return 'pin';
   });
 
-  // Keep active tab synced strictly in sequence (Step 1 -> Step 2 -> Step 3)
-  useEffect(() => {
-    const stepParam = searchParams.get('step');
-    if (stepParam === 'pin') {
-      let pendingEmail = '';
-      let pendingPwDone = securitySetup.passwordCompleted;
-      let pendingEmailSent = false;
-      try {
-        const pendingRaw = localStorage.getItem('mb_pending_onboarding');
-        if (pendingRaw) {
-          const parsed = JSON.parse(pendingRaw);
-          if (parsed?.newEmail) {
-            pendingEmail = String(parsed.newEmail).trim().toLowerCase();
-          }
-          if (parsed?.passwordCompleted) {
-            pendingPwDone = true;
-          }
-          if (parsed?.emailSentAt) {
-            pendingEmailSent = true;
-          }
-        }
-      } catch {
-        // ignore storage read error
-      }
-
-      const verifiedTarget = pendingEmail || (user?.email || '').trim().toLowerCase();
-      const isValidVerifiedTarget =
-        Boolean(verifiedTarget) && !DEFAULT_BOOTSTRAP_EMAILS.includes(verifiedTarget);
-
-      if (pendingPwDone && (pendingEmailSent || securitySetup.emailCompleted) && isValidVerifiedTarget) {
-        if (!securitySetup.emailCompleted) {
-          markEmailVerified(verifiedTarget, role || 'admin', securitySetup.pinCompleted);
-        }
-        setActiveTab('pin');
-        return;
-      }
-    }
-
-    if (!securitySetup.passwordCompleted) {
-      if (activeTab !== 'password') setActiveTab('password');
-    } else if (!securitySetup.emailCompleted) {
-      if (activeTab === 'pin') setActiveTab('email');
-    } else if (!securitySetup.pinCompleted && activeTab === 'email') {
-      setActiveTab('pin');
-    }
-  }, [
-    searchParams,
-    securitySetup.passwordCompleted,
-    securitySetup.emailCompleted,
-    securitySetup.pinCompleted,
-    activeTab,
-    user?.email,
-    role,
-    markEmailVerified,
-  ]);
-
   // Password Step State
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -102,6 +46,149 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailChecking, setEmailChecking] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Keep active tab synced strictly in sequence (Step 1 -> Step 2 -> Step 3)
+  useEffect(() => {
+    let cancelled = false;
+    const stepParam = searchParams.get('step');
+
+    const verifyStepAndSyncTab = async () => {
+      if (stepParam === 'pin') {
+        let pendingEmail = '';
+        let pendingPwDone = securitySetup.passwordCompleted;
+        let pendingEmailSent = false;
+        let pendingAlreadyVerified = securitySetup.emailCompleted;
+        try {
+          const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+          if (pendingRaw) {
+            const parsed = JSON.parse(pendingRaw);
+            if (parsed?.newEmail) {
+              pendingEmail = String(parsed.newEmail).trim().toLowerCase();
+            }
+            if (parsed?.passwordCompleted) {
+              pendingPwDone = true;
+            }
+            if (parsed?.emailSentAt) {
+              pendingEmailSent = true;
+            }
+            if (parsed?.emailCompleted) {
+              pendingAlreadyVerified = true;
+            }
+          }
+        } catch {
+          // ignore storage read error
+        }
+
+        if (!pendingPwDone) {
+          if (!cancelled) setActiveTab('password');
+          return;
+        }
+
+        const verifiedTarget = pendingEmail || (user?.email || '').trim().toLowerCase();
+        const isValidVerifiedTarget =
+          Boolean(verifiedTarget) && !DEFAULT_BOOTSTRAP_EMAILS.includes(verifiedTarget);
+
+        if (!isValidVerifiedTarget || (!pendingEmailSent && !pendingAlreadyVerified)) {
+          if (!cancelled) {
+            setActiveTab('email');
+            setEmailError(
+              'Wajib memasukkan email baru dan menyelesaikan verifikasi email terlebih dahulu sebelum membuka Langkah 3 (PIN Baru).'
+            );
+          }
+          return;
+        }
+
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const codeParam = searchParams.get('code');
+        const hasAuthCallbackToken = Boolean(
+          codeParam ||
+            searchParams.get('token_hash') ||
+            searchParams.get('access_token') ||
+            hashParams.get('access_token') ||
+            hashParams.get('token_hash') ||
+            hashParams.get('type') === 'email_change' ||
+            hashParams.get('type') === 'signup'
+        );
+
+        if (codeParam) {
+          try {
+            await supabase.auth.exchangeCodeForSession(codeParam);
+          } catch {
+            // ignore if already exchanged
+          }
+        }
+
+        let confirmedBySupabase = hasAuthCallbackToken || pendingAlreadyVerified;
+        if (!confirmedBySupabase) {
+          try {
+            const { data: userData } = await supabase.auth.getUser();
+            const authUser = userData?.user;
+            const authEmail = (authUser?.email || '').trim().toLowerCase();
+            if (
+              authUser?.email_confirmed_at &&
+              authEmail === verifiedTarget &&
+              !DEFAULT_BOOTSTRAP_EMAILS.includes(authEmail)
+            ) {
+              confirmedBySupabase = true;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!confirmedBySupabase) {
+          try {
+            const { data: statusData } = await supabase.rpc('get_account_security_status', {
+              p_email: verifiedTarget,
+            });
+            if (statusData?.ok && statusData?.email_completed) {
+              confirmedBySupabase = true;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (cancelled) return;
+
+        if (confirmedBySupabase) {
+          if (!securitySetup.emailCompleted) {
+            markEmailVerified(verifiedTarget, role || 'admin', securitySetup.pinCompleted);
+          }
+          setActiveTab('pin');
+          return;
+        } else {
+          setActiveTab('email');
+          setEmailError(
+            `Verifikasi email untuk ${verifiedTarget} belum dikonfirmasi. Silakan klik tautan verifikasi resmi di kotak masuk email Anda terlebih dahulu.`
+          );
+          return;
+        }
+      }
+
+      if (!securitySetup.passwordCompleted) {
+        if (activeTab !== 'password') setActiveTab('password');
+      } else if (!securitySetup.emailCompleted) {
+        if (activeTab === 'pin') setActiveTab('email');
+      } else if (!securitySetup.pinCompleted && activeTab === 'email') {
+        setActiveTab('pin');
+      }
+    };
+
+    void verifyStepAndSyncTab();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    searchParams,
+    securitySetup.passwordCompleted,
+    securitySetup.emailCompleted,
+    securitySetup.pinCompleted,
+    activeTab,
+    user?.email,
+    role,
+    markEmailVerified,
+  ]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;

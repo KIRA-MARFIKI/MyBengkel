@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
+import { supabase, safeGetSession } from '../../lib/supabase';
 import {
   useAuth,
   UserRole,
@@ -109,7 +109,7 @@ export const VerifyEmail: React.FC = () => {
       // 1. Exchange the PKCE code once (the client may already have done it on init)
       if (code && !attemptedCodes.has(code)) {
         attemptedCodes.add(code);
-        const { data: existing } = await supabase.auth.getSession();
+        const { data: existing } = await safeGetSession();
         if (!existing.session) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
@@ -119,7 +119,7 @@ export const VerifyEmail: React.FC = () => {
       }
 
       // 2. Read the current Supabase session
-      const { data: sessData } = await supabase.auth.getSession();
+      const { data: sessData } = await safeGetSession();
       const sessionUser = sessData.session?.user ?? null;
       const sessionEmail = sessionUser?.email?.toLowerCase() || '';
       const sessionConfirmed = Boolean(sessionUser?.email_confirmed_at);

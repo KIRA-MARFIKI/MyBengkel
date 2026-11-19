@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../lib/mockAuth';
-import { supabase } from '../../lib/supabase';
+import { safeGetSession } from '../../lib/supabase';
 import { EyeIcon, EyeOffIcon } from '../../components/admin/ActionButton';
 
 export const ResetPassword: React.FC = () => {
@@ -23,7 +23,7 @@ export const ResetPassword: React.FC = () => {
 
     async function checkSession() {
       try {
-        const { data } = await supabase.auth.getSession();
+        const { data } = await safeGetSession();
         if (mounted) {
           // If session exists or hash contains access_token / type=recovery
           const hash = window.location.hash || '';
