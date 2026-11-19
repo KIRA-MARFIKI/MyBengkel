@@ -533,7 +533,14 @@ export const authenticateCredentialsAsync = async (
       if (msg && !msg.includes('tidak ditemukan')) {
         // Still allow local seed/fallback if matching seeded/local customer
         const localSeedCheck = authenticateCredentials(email, password, pin);
-        if (localSeedCheck.ok) return localSeedCheck;
+        if (localSeedCheck.ok) {
+          try {
+            await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+          } catch {
+            // Best-effort session hydration
+          }
+          return localSeedCheck;
+        }
         return { ok: false, error: msg };
       }
     } else if (error) {
@@ -576,6 +583,13 @@ export const authenticateCredentialsAsync = async (
   }
 
   const localRes = authenticateCredentials(email, password, pin);
+  if (localRes.ok) {
+    try {
+      await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+    } catch {
+      // Best-effort session hydration
+    }
+  }
   if (localRes.ok && !DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail) && localRes.role && localRes.role !== 'customer') {
     saveStoredSecuritySetup(cleanEmail, {
       mustCompleteSetup: false,
@@ -594,7 +608,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const storedRole = (
     typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(ROLE_KEY) : null
   ) as UserRole;
-  const validRole: UserRole =
+  let initialRole: UserRole =
     storedRole === 'admin' ||
       storedRole === 'master_admin' ||
       storedRole === 'customer' ||
@@ -602,11 +616,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? storedRole
       : null;
 
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(validRole !== null);
-  const [role, setRole] = useState<UserRole>(validRole);
-  const [user, setUser] = useState<MockUserProfile | null>(loadStoredUser);
+  let initialUser: MockUserProfile | null = loadStoredUser();
+
+  // If returning from email confirmation redirect (/admin?step=pin) in a new tab,
+  // hydrate session from pending onboarding state in localStorage so route guards don't drop the user.
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('step') === 'pin') {
+      try {
+        const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+        const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+        if (pending && (pending.newEmail || initialUser?.email)) {
+          const targetRole: 'admin' | 'master_admin' | 'master_helpdesk' =
+            pending.role === 'master_admin' ||
+            pending.role === 'master_helpdesk' ||
+            pending.role === 'admin'
+              ? pending.role
+              : initialRole === 'master_admin' ||
+                initialRole === 'master_helpdesk' ||
+                initialRole === 'admin'
+              ? initialRole
+              : 'admin';
+          const targetEmail = String(pending.newEmail || initialUser?.email || '').trim().toLowerCase();
+          if (targetEmail) {
+            initialRole = targetRole;
+            initialUser = {
+              ...(initialUser || {}),
+              email: targetEmail,
+              name: initialUser?.name || getRoleDisplayName(targetRole),
+            };
+            if (typeof sessionStorage !== 'undefined') {
+              sessionStorage.setItem(ROLE_KEY, targetRole);
+              sessionStorage.setItem(USER_KEY, JSON.stringify(initialUser));
+            }
+            const existingSetup = loadStoredSecuritySetup(targetEmail, targetRole);
+            saveStoredSecuritySetup(targetEmail, {
+              ...existingSetup,
+              mustCompleteSetup: !existingSetup.pinCompleted,
+              passwordCompleted: true,
+              emailCompleted: true,
+              pinCompleted: existingSetup.pinCompleted,
+              completedCount: existingSetup.pinCompleted ? 3 : 2,
+              totalSteps: 3,
+            });
+          }
+        }
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }
+
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(initialRole !== null);
+  const [role, setRole] = useState<UserRole>(initialRole);
+  const [user, setUser] = useState<MockUserProfile | null>(initialUser);
   const [securitySetup, setSecuritySetup] = useState<SecuritySetupProgress>(() =>
-    loadStoredSecuritySetup(loadStoredUser()?.email, validRole)
+    loadStoredSecuritySetup(initialUser?.email, initialRole)
   );
 
   useEffect(() => {
@@ -748,9 +813,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateSecurityEmail = async (
-    newEmail: string
+    rawNewEmail: string
   ): Promise<{ ok: boolean; error?: string }> => {
-    const cleanNew = newEmail.trim().toLowerCase();
+    const newEmail = rawNewEmail.trim().toLowerCase();
 
     let pendingPassword = '';
     try {
@@ -775,7 +840,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         JSON.stringify({
           ...prevPending,
           role: role || 'admin',
-          newEmail: cleanNew,
+          newEmail,
           newPassword: pendingPassword || prevPending.newPassword || '',
           emailSentAt: new Date().toISOString(),
         })
@@ -784,101 +849,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
 
-    // Persist email & Step 1 password immediately into Supabase credential tables
-    const { data: stepData, error: stepErr } = await supabase.rpc(
-      'save_onboarding_step_credentials',
-      {
-        p_email: cleanNew,
-        p_password: pendingPassword || null,
-        p_role: role || 'admin',
-        p_full_name: user?.name || getRoleDisplayName(role || 'admin'),
-      }
-    );
-    if (stepErr) {
-      const isMissingRpc =
-        stepErr.code === 'PGRST202' ||
-        stepErr.message.includes('Could not find the function');
-      if (!isMissingRpc) {
-        return { ok: false, error: `Gagal menyimpan email ke database: ${stepErr.message}` };
-      }
-    } else if (stepData && !(stepData as any).ok && (stepData as any).error) {
-      return { ok: false, error: String((stepData as any).error) };
-    }
-
     const roleForAcc =
       role === 'master_admin' || role === 'master_helpdesk' || role === 'admin'
         ? role
         : 'admin';
     upsertManagedAccount({
-      email: cleanNew,
-      userId: (stepData as any)?.user_id || undefined,
+      email: newEmail,
       role: roleForAcc,
-      roleCode: (stepData as any)?.role_code || undefined,
+      roleCode: user?.roleCode || undefined,
       nama: user?.name || getRoleDisplayName(roleForAcc),
       password: pendingPassword || undefined,
     });
 
-    const redirectUrl = `${window.location.origin}/auth/verify-email?role=${role || 'admin'}`;
     let requestError: string | null = null;
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanNew,
-        password: pendingPassword || 'MyBengkel@2026Secure!',
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            full_name: user?.name || (role ? role.replace('_', ' ') : 'Admin'),
-            onboarding_role: role || 'admin',
-          },
-        },
-      });
-
-      const isAlreadyRegisteredUser =
-        Boolean(data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0);
-
-      if (error) {
-        const msg = error.message.toLowerCase();
-        if (
-          msg.includes('already registered') ||
-          msg.includes('user already exists') ||
-          msg.includes('already taken')
-        ) {
-          const { error: resendError } = await supabase.auth.resend({
-            type: 'signup',
-            email: cleanNew,
-            options: {
-              emailRedirectTo: redirectUrl,
-            },
+      // Ensure an active Supabase Auth session exists for the current user before calling updateUser
+      const { data: sessData } = await supabase.auth.getSession();
+      if (!sessData?.session) {
+        const currentAuthEmail = (
+          user?.email ||
+          (role === 'master_helpdesk'
+            ? SEED_ACCOUNTS.helpdesk.email
+            : role === 'master_admin'
+            ? SEED_ACCOUNTS.masterAdmin.email
+            : SEED_ACCOUNTS.admin.email)
+        )
+          .trim()
+          .toLowerCase();
+        const defaultBootstrapPw =
+          role === 'master_helpdesk'
+            ? SEED_ACCOUNTS.helpdesk.password
+            : role === 'master_admin'
+            ? SEED_ACCOUNTS.masterAdmin.password
+            : SEED_ACCOUNTS.admin.password;
+        const candidatePasswords = Array.from(
+          new Set([pendingPassword, defaultBootstrapPw].filter(Boolean))
+        );
+        for (const candidatePw of candidatePasswords) {
+          const { data: signInData } = await supabase.auth.signInWithPassword({
+            email: currentAuthEmail,
+            password: candidatePw,
           });
-          if (
-            resendError &&
-            !resendError.message.includes('session') &&
-            !resendError.message.toLowerCase().includes('already confirmed')
-          ) {
-            requestError = resendError.message;
-          }
-        } else if (!error.message.includes('session')) {
-          requestError = error.message;
-        }
-      } else if (isAlreadyRegisteredUser) {
-        const { error: resendError } = await supabase.auth.resend({
-          type: 'signup',
-          email: cleanNew,
-          options: {
-            emailRedirectTo: redirectUrl,
-          },
-        });
-        if (
-          resendError &&
-          !resendError.message.includes('session') &&
-          !resendError.message.toLowerCase().includes('already confirmed')
-        ) {
-          requestError = resendError.message;
+          if (signInData?.session) break;
         }
       }
+
+      const { data, error } = await supabase.auth.updateUser({
+        email: newEmail,
+      }, {
+        emailRedirectTo: `${window.location.origin}/admin?step=pin`
+      });
+      void data;
+
+      if (error && !error.message.includes('session')) {
+        requestError = error.message;
+      }
     } catch (err: any) {
-      console.warn('Supabase signUp network exception:', err);
+      console.warn('Supabase updateUser network exception:', err);
       requestError = String(err?.message || err || 'Network error');
     }
 

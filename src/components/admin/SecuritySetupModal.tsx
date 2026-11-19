@@ -17,27 +17,53 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     updateSecurityPassword,
     updateSecurityEmail,
     updateSecurityPin,
+    markEmailVerified,
     logout,
   } = useAuth();
 
   // Active step in modal: 'password' | 'email' | 'pin'
   const [activeTab, setActiveTab] = useState<'password' | 'email' | 'pin'>(() => {
     const stepParam = searchParams.get('step');
-    if (stepParam === 'pin' && securitySetup.emailCompleted) return 'pin';
+    if (stepParam === 'pin') return 'pin';
     if (!securitySetup.passwordCompleted) return 'password';
     if (!securitySetup.emailCompleted) return 'email';
     return 'pin';
   });
 
-  // Keep active tab synced if email gets confirmed
+  // Keep active tab synced if email gets confirmed or redirected with ?step=pin
   useEffect(() => {
     const stepParam = searchParams.get('step');
-    if (stepParam === 'pin' && securitySetup.emailCompleted) {
+    if (stepParam === 'pin') {
+      if (!securitySetup.emailCompleted) {
+        let verifiedTarget = user?.email || '';
+        try {
+          const pendingRaw = localStorage.getItem('mb_pending_onboarding');
+          if (pendingRaw) {
+            const parsed = JSON.parse(pendingRaw);
+            if (parsed?.newEmail) {
+              verifiedTarget = String(parsed.newEmail).trim().toLowerCase();
+            }
+          }
+        } catch {
+          // ignore storage read error
+        }
+        if (verifiedTarget) {
+          markEmailVerified(verifiedTarget, role || 'admin', securitySetup.pinCompleted);
+        }
+      }
       setActiveTab('pin');
     } else if (securitySetup.emailCompleted && !securitySetup.pinCompleted && activeTab === 'email') {
       setActiveTab('pin');
     }
-  }, [searchParams, securitySetup.emailCompleted, securitySetup.pinCompleted, activeTab]);
+  }, [
+    searchParams,
+    securitySetup.emailCompleted,
+    securitySetup.pinCompleted,
+    activeTab,
+    user?.email,
+    role,
+    markEmailVerified,
+  ]);
 
   // Password Step State
   const [currentPassword, setCurrentPassword] = useState('');
