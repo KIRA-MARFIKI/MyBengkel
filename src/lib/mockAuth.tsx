@@ -154,8 +154,9 @@ const loadStoredSecuritySetup = (userEmail?: string, userRole?: UserRole): Secur
     if (raw) {
       const parsed = JSON.parse(raw);
       const pw = Boolean(parsed.passwordCompleted);
-      const em = Boolean(parsed.emailCompleted);
-      const pin = Boolean(parsed.pinCompleted);
+      // Strict sequential enforcement: Step 2 requires Step 1 and a non-bootstrap email; Step 3 requires Step 1 & Step 2
+      const em = pw && !isDefaultBootstrap && Boolean(parsed.emailCompleted);
+      const pin = pw && em && Boolean(parsed.pinCompleted);
       const count = (pw ? 1 : 0) + (em ? 1 : 0) + (pin ? 1 : 0);
       // Bootstrap accounts must ALWAYS complete setup by binding a personalized email & PIN
       const must = isDefaultBootstrap ? true : count < 3;
@@ -460,13 +461,31 @@ export const authenticateCredentialsAsync = async (
     };
   }
 
+  const isDefaultPw = ['admin123', 'masteradmin123', 'helpdesk123'].includes(password.trim());
+  const isDefaultEmail = DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail);
+  const isDefaultPin = cleanPin === '123456789012' || cleanPin === '21098';
+
   // 1. Check authoritative Supabase DB RPC first for synced cross-device login
   try {
-    const { data, error } = await supabase.rpc('authenticate_account_login', {
+    let { data, error } = await supabase.rpc('verify_account_login_and_pin', {
       p_email: cleanEmail,
       p_password: password,
       p_pin: cleanPin,
     });
+
+    if (
+      error &&
+      (error.code === 'PGRST202' ||
+        String(error.message || '').includes('Could not find the function'))
+    ) {
+      const fallbackLogin = await supabase.rpc('authenticate_account_login', {
+        p_email: cleanEmail,
+        p_password: password,
+        p_pin: cleanPin,
+      });
+      data = fallbackLogin.data;
+      error = fallbackLogin.error;
+    }
 
     if (!error && data) {
       const res = data as any;
@@ -492,19 +511,51 @@ export const authenticateCredentialsAsync = async (
           pin5: res.pin_5 ? String(res.pin_5) : deriveFiveDigitPin(String(res.pin_12 || cleanPin)),
         });
 
-        if (!DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail) && normalizedRole !== 'customer') {
-          const isSetupDone = !Boolean(res.must_complete_security_setup);
+        if (normalizedRole !== 'customer') {
+          const pwDone =
+            !isDefaultPw &&
+            (res.password_completed !== undefined ? Boolean(res.password_completed) : !isDefaultEmail);
+          const emailDone =
+            pwDone &&
+            !isDefaultEmail &&
+            (res.email_completed !== undefined ? Boolean(res.email_completed) : true);
+          const pinDone =
+            pwDone &&
+            emailDone &&
+            !isDefaultPin &&
+            String(res.pin_12 || cleanPin) !== '123456789012' &&
+            (res.pin_completed !== undefined
+              ? Boolean(res.pin_completed)
+              : !Boolean(res.must_complete_security_setup));
+          const completedCount = (pwDone ? 1 : 0) + (emailDone ? 1 : 0) + (pinDone ? 1 : 0);
+          const mustComplete =
+            Boolean(res.must_complete_security_setup) ||
+            isDefaultEmail ||
+            isDefaultPw ||
+            isDefaultPin ||
+            completedCount < 3;
+
+          if (!pwDone && typeof localStorage !== 'undefined') {
+            try {
+              localStorage.removeItem('mb_pending_onboarding');
+              localStorage.removeItem(LAST_VERIFIED_ONBOARDING_KEY);
+              localStorage.removeItem(LAST_ONBOARDING_PASSWORD_KEY);
+            } catch {
+              // ignore storage cleanup error
+            }
+          }
+
           saveStoredSecuritySetup(cleanEmail, {
-            mustCompleteSetup: !isSetupDone,
-            passwordCompleted: true,
-            emailCompleted: true,
-            pinCompleted: isSetupDone,
-            completedCount: isSetupDone ? 3 : 2,
+            mustCompleteSetup: mustComplete,
+            passwordCompleted: pwDone,
+            emailCompleted: emailDone,
+            pinCompleted: pinDone,
+            completedCount,
             totalSteps: 3,
           });
         }
 
-        // Best-effort Supabase Auth JWT hydration
+        // Best-effort Supabase Auth JWT hydration (safe after verify_account_login_and_pin repairs auth.users)
         try {
           await supabase.auth.signInWithPassword({
             email: cleanEmail,
@@ -534,6 +585,26 @@ export const authenticateCredentialsAsync = async (
         // Still allow local seed/fallback if matching seeded/local customer
         const localSeedCheck = authenticateCredentials(email, password, pin);
         if (localSeedCheck.ok) {
+          if (localSeedCheck.role && localSeedCheck.role !== 'customer') {
+            const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin;
+            if (mustSetup && typeof localStorage !== 'undefined') {
+              try {
+                localStorage.removeItem('mb_pending_onboarding');
+                localStorage.removeItem(LAST_VERIFIED_ONBOARDING_KEY);
+                localStorage.removeItem(LAST_ONBOARDING_PASSWORD_KEY);
+              } catch {
+                // ignore
+              }
+            }
+            saveStoredSecuritySetup(cleanEmail, {
+              mustCompleteSetup: mustSetup,
+              passwordCompleted: !isDefaultPw && !isDefaultEmail,
+              emailCompleted: !isDefaultPw && !isDefaultEmail,
+              pinCompleted: !mustSetup,
+              completedCount: mustSetup ? 0 : 3,
+              totalSteps: 3,
+            });
+          }
           try {
             await supabase.auth.signInWithPassword({ email: cleanEmail, password });
           } catch {
@@ -544,7 +615,7 @@ export const authenticateCredentialsAsync = async (
         return { ok: false, error: msg };
       }
     } else if (error) {
-      // Fallback: sync helpdesk_list_accounts into local registry if authenticate_account_login is unavailable
+      // Fallback: sync helpdesk_list_accounts into local registry if verify_account_login_and_pin is unavailable
       try {
         const { data: listData } = await supabase.rpc('helpdesk_list_accounts');
         const rows = Array.isArray((listData as any)?.accounts)
@@ -590,13 +661,23 @@ export const authenticateCredentialsAsync = async (
       // Best-effort session hydration
     }
   }
-  if (localRes.ok && !DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail) && localRes.role && localRes.role !== 'customer') {
+  if (localRes.ok && localRes.role && localRes.role !== 'customer') {
+    const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin;
+    if (mustSetup && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem('mb_pending_onboarding');
+        localStorage.removeItem(LAST_VERIFIED_ONBOARDING_KEY);
+        localStorage.removeItem(LAST_ONBOARDING_PASSWORD_KEY);
+      } catch {
+        // ignore
+      }
+    }
     saveStoredSecuritySetup(cleanEmail, {
-      mustCompleteSetup: false,
-      passwordCompleted: true,
-      emailCompleted: true,
-      pinCompleted: true,
-      completedCount: 3,
+      mustCompleteSetup: mustSetup,
+      passwordCompleted: !isDefaultPw && !isDefaultEmail,
+      emailCompleted: !isDefaultPw && !isDefaultEmail,
+      pinCompleted: !mustSetup,
+      completedCount: mustSetup ? 0 : 3,
       totalSteps: 3,
     });
   }
@@ -619,14 +700,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   let initialUser: MockUserProfile | null = loadStoredUser();
 
   // If returning from email confirmation redirect (/admin?step=pin) in a new tab,
-  // hydrate session from pending onboarding state in localStorage so route guards don't drop the user.
+  // strictly verify that Step 1 (passwordCompleted) and Step 2 (newEmail & emailSentAt) were completed
+  // before hydrating emailCompleted = true.
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
     if (params.get('step') === 'pin') {
       try {
         const pendingRaw = localStorage.getItem('mb_pending_onboarding');
         const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-        if (pending && (pending.newEmail || initialUser?.email)) {
+        const targetEmail = String(pending?.newEmail || '').trim().toLowerCase();
+        const hasValidStep1AndStep2 =
+          Boolean(pending?.passwordCompleted) &&
+          Boolean(pending?.emailSentAt) &&
+          Boolean(targetEmail) &&
+          !DEFAULT_BOOTSTRAP_EMAILS.includes(targetEmail);
+
+        if (hasValidStep1AndStep2) {
           const targetRole: 'admin' | 'master_admin' | 'master_helpdesk' =
             pending.role === 'master_admin' ||
             pending.role === 'master_helpdesk' ||
@@ -637,29 +726,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 initialRole === 'admin'
               ? initialRole
               : 'admin';
-          const targetEmail = String(pending.newEmail || initialUser?.email || '').trim().toLowerCase();
-          if (targetEmail) {
-            initialRole = targetRole;
-            initialUser = {
-              ...(initialUser || {}),
-              email: targetEmail,
-              name: initialUser?.name || getRoleDisplayName(targetRole),
-            };
-            if (typeof sessionStorage !== 'undefined') {
-              sessionStorage.setItem(ROLE_KEY, targetRole);
-              sessionStorage.setItem(USER_KEY, JSON.stringify(initialUser));
-            }
-            const existingSetup = loadStoredSecuritySetup(targetEmail, targetRole);
-            saveStoredSecuritySetup(targetEmail, {
-              ...existingSetup,
-              mustCompleteSetup: !existingSetup.pinCompleted,
-              passwordCompleted: true,
-              emailCompleted: true,
-              pinCompleted: existingSetup.pinCompleted,
-              completedCount: existingSetup.pinCompleted ? 3 : 2,
-              totalSteps: 3,
-            });
+          initialRole = targetRole;
+          initialUser = {
+            ...(initialUser || {}),
+            email: targetEmail,
+            name: initialUser?.name || getRoleDisplayName(targetRole),
+          };
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem(ROLE_KEY, targetRole);
+            sessionStorage.setItem(USER_KEY, JSON.stringify(initialUser));
           }
+          const existingSetup = loadStoredSecuritySetup(targetEmail, targetRole);
+          saveStoredSecuritySetup(targetEmail, {
+            ...existingSetup,
+            mustCompleteSetup: !existingSetup.pinCompleted,
+            passwordCompleted: true,
+            emailCompleted: true,
+            pinCompleted: existingSetup.pinCompleted,
+            completedCount: existingSetup.pinCompleted ? 3 : 2,
+            totalSteps: 3,
+          });
         }
       } catch {
         // ignore storage errors
@@ -694,15 +780,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    const cleanCurrentEmail = user.email.trim().toLowerCase();
+    const isBootstrapEmail = DEFAULT_BOOTSTRAP_EMAILS.includes(cleanCurrentEmail);
+
     try {
-      const { data, error } = await supabase.rpc('get_account_security_status');
+      let { data, error } = await supabase.rpc('get_account_security_status', {
+        p_email: cleanCurrentEmail,
+      });
+      if (
+        error &&
+        (error.code === 'PGRST202' ||
+          String(error.message || '').includes('Could not find the function'))
+      ) {
+        const zeroArgRes = await supabase.rpc('get_account_security_status');
+        data = zeroArgRes.data;
+        error = zeroArgRes.error;
+      }
       if (!error && data?.ok) {
+        const pwDone = Boolean(data.password_completed);
+        const emDone = pwDone && !isBootstrapEmail && Boolean(data.email_completed);
+        const pinDone = pwDone && emDone && Boolean(data.pin_completed);
+        const doneCount = (pwDone ? 1 : 0) + (emDone ? 1 : 0) + (pinDone ? 1 : 0);
+        const mustComplete =
+          Boolean(data.must_complete_security_setup) || isBootstrapEmail || doneCount < 3;
         const next: SecuritySetupProgress = {
-          mustCompleteSetup: data.must_complete_security_setup,
-          passwordCompleted: data.password_completed,
-          emailCompleted: data.email_completed,
-          pinCompleted: data.pin_completed,
-          completedCount: data.completed_count,
+          mustCompleteSetup: mustComplete,
+          passwordCompleted: pwDone,
+          emailCompleted: emDone,
+          pinCompleted: pinDone,
+          completedCount: doneCount,
           totalSteps: 3,
         };
         setSecuritySetup(next);
@@ -720,6 +826,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateSecurityPassword = async (
     newPassword: string
   ): Promise<{ ok: boolean; error?: string }> => {
+    if (['admin123', 'masteradmin123', 'helpdesk123'].includes(newPassword.trim())) {
+      return {
+        ok: false,
+        error: 'Kata sandi baru tidak boleh sama dengan kata sandi bawaan sistem.',
+      };
+    }
+
     let pendingEmail = '';
     try {
       const prevPendingRaw = localStorage.getItem('mb_pending_onboarding');
@@ -739,6 +852,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore storage errors
     }
 
+    const currentAuthEmail = (
+      user?.email ||
+      (role === 'master_helpdesk'
+        ? SEED_ACCOUNTS.helpdesk.email
+        : role === 'master_admin'
+        ? SEED_ACCOUNTS.masterAdmin.email
+        : SEED_ACCOUNTS.admin.email)
+    )
+      .trim()
+      .toLowerCase();
+
     const activeCustomEmail =
       pendingEmail ||
       (user?.email && !DEFAULT_BOOTSTRAP_EMAILS.includes(user.email.trim().toLowerCase())
@@ -746,16 +870,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : '');
 
     try {
-      const { data: sess } = await supabase.auth.getSession();
+      let { data: sess } = await supabase.auth.getSession();
+      if (!sess?.session) {
+        const defaultBootstrapPw =
+          role === 'master_helpdesk'
+            ? SEED_ACCOUNTS.helpdesk.password
+            : role === 'master_admin'
+            ? SEED_ACCOUNTS.masterAdmin.password
+            : SEED_ACCOUNTS.admin.password;
+        const { data: signInData } = await supabase.auth.signInWithPassword({
+          email: currentAuthEmail,
+          password: defaultBootstrapPw,
+        });
+        if (signInData?.session) {
+          sess = { session: signInData.session };
+        }
+      }
       if (sess?.session) {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
           return { ok: false, error: error.message };
         }
-        const { error: recErr } = await supabase.rpc('record_security_password_changed');
-        if (recErr && !recErr.message.includes('session')) {
-          console.warn('record_security_password_changed:', recErr.message);
-        }
+      }
+      const { error: recErr } = await supabase.rpc('record_security_password_changed', {
+        p_new_password: newPassword,
+        p_email: currentAuthEmail,
+      });
+      if (
+        recErr &&
+        (recErr.code === 'PGRST202' ||
+          String(recErr.message || '').includes('Could not find the function'))
+      ) {
+        await supabase.rpc('record_security_password_changed');
       }
     } catch (err: any) {
       return { ok: false, error: String(err?.message || err || 'Gagal menyimpan kata sandi ke auth.') };
@@ -795,13 +941,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
 
-    const nextCount =
-      1 + (securitySetup.emailCompleted ? 1 : 0) + (securitySetup.pinCompleted ? 1 : 0);
+    const nextEmailDone =
+      !DEFAULT_BOOTSTRAP_EMAILS.includes(currentAuthEmail) && securitySetup.emailCompleted;
+    const nextPinDone = nextEmailDone && securitySetup.pinCompleted;
+    const nextCount = 1 + (nextEmailDone ? 1 : 0) + (nextPinDone ? 1 : 0);
     const nextMust = nextCount < 3;
 
     const next: SecuritySetupProgress = {
       ...securitySetup,
       passwordCompleted: true,
+      emailCompleted: nextEmailDone,
+      pinCompleted: nextPinDone,
       completedCount: nextCount,
       mustCompleteSetup: nextMust,
     };
@@ -815,7 +965,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateSecurityEmail = async (
     rawNewEmail: string
   ): Promise<{ ok: boolean; error?: string }> => {
+    if (!securitySetup.passwordCompleted) {
+      return {
+        ok: false,
+        error: 'Wajib menyelesaikan Langkah 1 (Ganti Kata Sandi) terlebih dahulu sebelum mengubah email.',
+      };
+    }
+
     const newEmail = rawNewEmail.trim().toLowerCase();
+    if (DEFAULT_BOOTSTRAP_EMAILS.includes(newEmail)) {
+      return {
+        ok: false,
+        error: 'Email baru tidak boleh menggunakan alamat email bawaan sistem.',
+      };
+    }
 
     let pendingPassword = '';
     try {
@@ -842,6 +1005,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: role || 'admin',
           newEmail,
           newPassword: pendingPassword || prevPending.newPassword || '',
+          passwordCompleted: true,
+          emailCompleted: false,
           emailSentAt: new Date().toISOString(),
         })
       );
@@ -936,13 +1101,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // CRITICAL: emailCompleted remains FALSE until verification link callback executes!
-    const nextCount =
-      (securitySetup.passwordCompleted ? 1 : 0) + 0 + (securitySetup.pinCompleted ? 1 : 0);
-
     const next: SecuritySetupProgress = {
       ...securitySetup,
+      passwordCompleted: true,
       emailCompleted: false,
-      completedCount: nextCount,
+      pinCompleted: false,
+      completedCount: 1,
       mustCompleteSetup: true,
     };
     setSecuritySetup(next);
@@ -958,7 +1122,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pinAlreadyCompleted: boolean = false
   ) => {
     const cleanEmail = verifiedEmail.trim().toLowerCase();
+    if (!cleanEmail || DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail)) {
+      return;
+    }
     const targetRole: UserRole = verifiedRole || role || 'admin';
+    const oldEmail = (user?.email || '').trim().toLowerCase();
     const nextUser: MockUserProfile = {
       ...(user || {}),
       email: cleanEmail,
@@ -973,6 +1141,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.setItem(ROLE_KEY, targetRole);
       sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser));
     }
+
+    // Persist email verification state to Supabase DB
+    void (async () => {
+      try {
+        const { error: recErr } = await supabase.rpc('record_security_email_changed', {
+          p_new_email: cleanEmail,
+          p_old_email: oldEmail || null,
+        });
+        if (
+          recErr &&
+          (recErr.code === 'PGRST202' ||
+            String(recErr.message || '').includes('Could not find the function'))
+        ) {
+          await supabase.rpc('record_security_email_changed');
+        }
+      } catch {
+        // ignore network error
+      }
+    })();
 
     const nextSetup: SecuritySetupProgress = pinAlreadyCompleted
       ? {
@@ -995,7 +1182,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveStoredSecuritySetup(cleanEmail, nextSetup);
 
     try {
-      // Persistent marker so a repeated click on the email link is recognised as already verified
       localStorage.setItem(
         LAST_VERIFIED_ONBOARDING_KEY,
         JSON.stringify({
@@ -1014,6 +1200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...prevPending,
             role: targetRole,
             newEmail: cleanEmail,
+            passwordCompleted: true,
             emailCompleted: true,
             emailVerifiedAt: new Date().toISOString(),
           })
@@ -1027,14 +1214,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateSecurityPin = async (
     newPin: string
   ): Promise<{ ok: boolean; error?: string }> => {
-    const cleanPin = newPin.trim();
+    const clean12 = newPin.replace(/\D/g, '');
     if (role === 'admin' || role === 'master_admin' || role === 'master_helpdesk') {
-      if (cleanPin.length !== 12 || !/^\d{12}$/.test(cleanPin)) {
-        return { ok: false, error: 'PIN wajib terdiri dari 12 angka.' };
+      if (!securitySetup.passwordCompleted) {
+        return {
+          ok: false,
+          error: 'Wajib menyelesaikan Langkah 1 (Ganti Kata Sandi) terlebih dahulu.',
+        };
       }
-    } else if (cleanPin.length < 4 || cleanPin.length > 12 || !/^\d+$/.test(cleanPin)) {
+      if (!securitySetup.emailCompleted) {
+        return {
+          ok: false,
+          error: 'Wajib menyelesaikan Langkah 2 (Verifikasi Email Akun) terlebih dahulu.',
+        };
+      }
+      if (clean12.length !== 12 || !/^\d{12}$/.test(clean12)) {
+        return { ok: false, error: 'PIN baru wajib terdiri dari tepat 12 digit angka.' };
+      }
+      if (clean12 === '123456789012') {
+        return {
+          ok: false,
+          error: 'PIN baru tidak boleh menggunakan PIN bawaan sistem (123456789012).',
+        };
+      }
+    } else if (clean12.length < 4 || clean12.length > 12 || !/^\d+$/.test(clean12)) {
       return { ok: false, error: 'PIN harus berupa angka antara 4 hingga 12 digit.' };
     }
+    const cleanPin = clean12;
+    const pin5 = clean12.slice(-5).split('').reverse().join('');
 
     let pendingEmail = '';
     let pendingPassword = '';
@@ -1149,7 +1356,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const finalEmailKey = (resolvedEmail || targetEmailKey).trim().toLowerCase();
-    const computedPin5 = (rpcData?.pin_5 as string) || deriveFiveDigitPin(cleanPin);
+    const computedPin5 = (rpcData?.pin_5 as string) || pin5 || deriveFiveDigitPin(cleanPin);
     const returnedRoleCode = rpcData?.role_code as string | undefined;
     const resolvedPassword =
       pendingPassword ||

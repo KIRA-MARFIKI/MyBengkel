@@ -111,10 +111,18 @@ const TOP_ITEMS: { id: TopNavId; label: string; to: string }[] = [
 ];
 
 const AdminShell: React.FC = () => {
-  const { role, user, logout, securitySetup } = useAuth();
+  const { role, user, logout, securitySetup, refreshSecurityStatus } = useAuth();
   const isHelpdeskOnly = role === 'master_helpdesk';
   const isPrivileged = role === 'admin' || role === 'master_admin' || role === 'master_helpdesk';
   const showSecurityModal = isPrivileged && securitySetup.mustCompleteSetup;
+
+  useEffect(() => {
+    if (!isPrivileged) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('step') === 'pin') return;
+    void refreshSecurityStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrivileged, user?.email]);
   const visibleTopItems = isHelpdeskOnly
     ? TOP_ITEMS
     : TOP_ITEMS.filter((item) => item.id !== 'helpdesk');
@@ -383,11 +391,25 @@ const AdminShell: React.FC = () => {
         )}
 
         <main className="mt-5">
-          <RouteTransition routeKey={location.pathname}>
-            <ErrorBoundary fallbackTitle="Modul Mengalami Kendala">
-              <Outlet />
-            </ErrorBoundary>
-          </RouteTransition>
+          {showSecurityModal ? (
+            <div
+              aria-hidden="true"
+              className="min-h-[60vh] rounded-[16px] border border-[#D9DDE6] bg-white/70 p-8 text-center flex flex-col items-center justify-center gap-2 pointer-events-none select-none"
+            >
+              <div className="text-sm font-semibold text-[#1E2230]">
+                Akses Dashboard Terkunci
+              </div>
+              <div className="text-xs text-[#646B7C]">
+                Selesaikan seluruh 3 langkah keamanan akun wajib pada jendela verifikasi untuk membuka modul operasional.
+              </div>
+            </div>
+          ) : (
+            <RouteTransition routeKey={location.pathname}>
+              <ErrorBoundary fallbackTitle="Modul Mengalami Kendala">
+                <Outlet />
+              </ErrorBoundary>
+            </RouteTransition>
+          )}
         </main>
       </div>
 
