@@ -57,18 +57,17 @@ export interface StockMovement {
 export type PartJenis = 'reguler' | 'ho';
 export type PartType = 'Reguler' | 'HO';
 
-// GD-0: Part: id, kode (PRT-001), nama, satuan, jenis "reguler" | "ho",
-// hargaBeli, hargaJual, stokMin (null for HO), createdAt.
+// GD-0: Part: id, kode (PRT-001), nama, satuan, hargaBeli, hargaJual, stokMin, createdAt.
 // Stock is computed from movements and never stored.
 export interface Part {
   id: string; // PRT-001
   kode: string; // PRT-001
   nama: string;
   satuan: string;
-  jenis: PartJenis;
+  jenis?: PartJenis;
   hargaBeli: number;
   hargaJual: number;
-  stokMin: number | null; // null for HO
+  stokMin: number | null;
   createdAt: string;
 
   // Compatibility aliases for Servis / Penjualan / Laporan
@@ -78,7 +77,7 @@ export interface Part {
   buyPrice: number;
   sellPrice: number;
   minStock: number;
-  partType: PartType;
+  partType?: PartType;
 }
 
 // GD-0: PartHistory rows: partId, at, byNama, byId, field, oldValue, newValue, note.
@@ -398,14 +397,14 @@ export function makePartRecord(input: {
   kode: string;
   nama: string;
   satuan: string;
-  jenis: PartJenis;
+  jenis?: PartJenis;
   hargaBeli: number;
   hargaJual: number;
-  stokMin: number | null;
+  stokMin?: number | null;
   createdAt: string;
 }): Part {
   const jenis = input.jenis === 'ho' ? 'ho' : 'reguler';
-  const stokMin = jenis === 'ho' ? null : input.stokMin ?? 1;
+  const stokMin = input.stokMin ?? 1;
   return {
     id: input.kode,
     kode: input.kode,
@@ -422,7 +421,7 @@ export function makePartRecord(input: {
     unit: input.satuan,
     buyPrice: input.hargaBeli,
     sellPrice: input.hargaJual,
-    minStock: stokMin ?? 0,
+    minStock: stokMin,
     partType: jenis === 'ho' ? 'HO' : 'Reguler',
   };
 }

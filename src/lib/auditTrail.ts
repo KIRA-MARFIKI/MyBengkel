@@ -5,7 +5,22 @@ import {
   deriveFiveDigitPin,
   getManagedAccounts,
 } from './mockCredentials';
-import { formatNowJakarta } from './stockOpname';
+
+export const formatNowJakarta = (): string => {
+  const d = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  };
+  const parts = new Intl.DateTimeFormat('id-ID', options).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}.${get('minute')}`;
+};
 
 export type AuditCategory = 'bisnis' | 'akses';
 
@@ -18,7 +33,6 @@ export type AuditModule =
   | 'gudang'
   | 'pos'
   | 'wo_part'
-  | 'stock_opname'
   | 'persetujuan'
   | 'input_manual'
   | 'helpdesk'
@@ -41,12 +55,12 @@ export interface AuditLog {
   actorId: string; // e.g. ADM-001, MG-001, ADMG-001
   actorName: string;
   actorRole: AuditActorRole;
-  event: string; // short code, e.g. 'wo_completed', 'stock_opname_approved'
+  event: string; // short code, e.g. 'wo_completed'
   category: AuditCategory;
   module: AuditModule;
   action: string; // Readable Indonesian action description
-  entityType: string; // e.g. 'WorkOrder', 'Booking', 'StockOpname', 'Sale', 'Part'
-  entityId: string; // e.g. WO-0001, BKG-0001, SO-0001, TRX-0001
+  entityType: string; // e.g. 'WorkOrder', 'Booking', 'Sale', 'Part'
+  entityId: string; // e.g. WO-0001, BKG-0001, TRX-0001
   beforeData?: Record<string, any> | string;
   afterData?: Record<string, any> | string;
   reason?: string;
@@ -67,7 +81,6 @@ export const AUDIT_MODULE_LABELS: Record<AuditModule, string> = {
   gudang: 'Gudang & Part',
   pos: 'Penjualan Kasir POS',
   wo_part: 'Penjualan Part WO',
-  stock_opname: 'Stok Opname',
   persetujuan: 'Persetujuan & Otorisasi',
   input_manual: 'Input Manual',
   helpdesk: 'Help Desk',

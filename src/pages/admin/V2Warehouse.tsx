@@ -4,7 +4,6 @@ import { useAdmin } from '../../context/AdminContext';
 import { computeStock, Part } from '../../data/adminDummy';
 import { useAuth } from '../../lib/mockAuth';
 import { formatRupiah } from '../../lib/format';
-import { PageHeader } from '../../components/admin/PageHeader';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { FilterTabs } from '../../components/admin/FilterTabs';
@@ -21,7 +20,7 @@ type StockFilterKey = 'all' | 'low';
 const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
 
 const isCriticalStock = (part: Part, stok: number): boolean =>
-  part.jenis === 'reguler' && stok <= (part.stokMin ?? 0);
+  stok <= (part.stokMin ?? 0);
 
 const V2Warehouse: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -141,7 +140,7 @@ const V2Warehouse: React.FC = () => {
     const parsedStok = Number(editStok);
     const parsedBeli = Number(editHargaBeli);
     const parsedJual = Number(editHargaJual);
-    const parsedMin = editPartTarget.jenis === 'ho' ? null : Number(editStokMin);
+    const parsedMin = Number(editStokMin);
 
     if (Number.isNaN(parsedStok) || parsedStok < 0) {
       setEditError('Stok tidak boleh kurang dari 0.');
@@ -151,7 +150,7 @@ const V2Warehouse: React.FC = () => {
       setEditError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
       return;
     }
-    if (editPartTarget.jenis === 'reguler' && (parsedMin === null || Number.isNaN(parsedMin) || parsedMin < 0)) {
+    if (Number.isNaN(parsedMin) || parsedMin < 0) {
       setEditError('Stok minimum wajib diisi (minimal 0).');
       return;
     }
@@ -245,12 +244,6 @@ const V2Warehouse: React.FC = () => {
       ),
     },
     {
-      key: 'jenis',
-      header: 'Jenis',
-      isStatus: true,
-      render: (p) => <StatusChip status={p.jenis} />,
-    },
-    {
       key: 'stok',
       header: 'Stok Saat Ini',
       align: 'right',
@@ -270,7 +263,7 @@ const V2Warehouse: React.FC = () => {
       mobileHidden: true,
       render: (p) => (
         <span className="tabular-nums text-[#646B7C]">
-          {p.jenis === 'ho' ? 'Sesuai pesanan HO' : `${p.stokMin ?? 0} ${p.satuan}`}
+          {`${p.stokMin ?? 0} ${p.satuan}`}
         </span>
       ),
     },
@@ -333,26 +326,6 @@ const V2Warehouse: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Stok Part"
-        decision={
-          canManageWarehouse
-            ? 'Pantau ketersediaan stok sparepart dan kelola perubahan atau penghapusan part gudang.'
-            : 'Pantau daftar sparepart, harga jual, dan status stok kritis gudang (akses lihat saja).'
-        }
-        action={
-          canManageWarehouse ? (
-            <ActionButton
-              intent="add"
-              to="/admin/v2/input-part"
-              icon={<PlusIcon size={16} />}
-            >
-              Input Part Baru
-            </ActionButton>
-          ) : undefined
-        }
-      />
-
       <DataCard
         title="Daftar Stok Part Gudang"
         actions={
@@ -362,6 +335,15 @@ const V2Warehouse: React.FC = () => {
               onChange={setSearchQuery}
               placeholder="Cari kode atau nama part..."
             />
+            {canManageWarehouse && (
+              <ActionButton
+                intent="add"
+                to="/admin/v2/input-part"
+                icon={<PlusIcon size={16} />}
+              >
+                Input Part Baru
+              </ActionButton>
+            )}
           </div>
         }
       >
@@ -417,10 +399,8 @@ const V2Warehouse: React.FC = () => {
                 <div className="font-mono font-semibold text-[14px] text-[#1E2230] mt-0.5">{detailPart.kode}</div>
               </div>
               <div>
-                <div className="text-[12px] text-[#646B7C]">Jenis</div>
-                <div className="mt-1">
-                  <StatusChip status={detailPart.jenis} />
-                </div>
+                <div className="text-[12px] text-[#646B7C]">Satuan</div>
+                <div className="font-medium text-[14px] text-[#1E2230] mt-0.5">{detailPart.satuan}</div>
               </div>
               <div>
                 <div className="text-[12px] text-[#646B7C]">Stok Saat Ini</div>
@@ -431,7 +411,7 @@ const V2Warehouse: React.FC = () => {
               <div>
                 <div className="text-[12px] text-[#646B7C]">Stok Minimum</div>
                 <div className="font-medium text-[14px] text-[#1E2230] mt-0.5">
-                  {detailPart.jenis === 'ho' ? 'Sesuai pesanan HO' : `${detailPart.stokMin ?? 0} ${detailPart.satuan}`}
+                  {`${detailPart.stokMin ?? 0} ${detailPart.satuan}`}
                 </div>
               </div>
               <div>
@@ -536,19 +516,17 @@ const V2Warehouse: React.FC = () => {
               </FormField>
             </div>
 
-            {editPartTarget.jenis === 'reguler' && (
-              <FormField id="edit-stok-min" label="Stok Minimum">
-                <input
-                  id="edit-stok-min"
-                  type="number"
-                  min={0}
-                  value={editStokMin}
-                  onChange={(e) => setEditStokMin(e.target.value)}
-                  className="admin-input h-10"
-                  required
-                />
-              </FormField>
-            )}
+            <FormField id="edit-stok-min" label="Stok Minimum">
+              <input
+                id="edit-stok-min"
+                type="number"
+                min={0}
+                value={editStokMin}
+                onChange={(e) => setEditStokMin(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
 
             <div className="grid grid-cols-2 gap-3">
               <FormField id="edit-beli" label="Harga Beli (Rp)">

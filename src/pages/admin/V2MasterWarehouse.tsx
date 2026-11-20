@@ -1,11 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAdmin } from '../../context/AdminContext';
-import { computeStock, Part, PartJenis } from '../../data/adminDummy';
+import { computeStock, Part } from '../../data/adminDummy';
 import { useAuth } from '../../lib/mockAuth';
 import { formatRupiah } from '../../lib/format';
-import { type VerifiedWarehouseUser } from '../../lib/mockCredentials';
-import { PageHeader } from '../../components/admin/PageHeader';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { FilterTabs } from '../../components/admin/FilterTabs';
@@ -14,11 +12,9 @@ import { StatusChip } from '../../components/admin/StatusChip';
 import { SidePanel } from '../../components/admin/SidePanel';
 import { CenterDialog } from '../../components/admin/CenterDialog';
 import { FormField } from '../../components/admin/FormField';
-import { ActionButton, PencilIcon, PlusIcon, TrashIcon } from '../../components/admin/ActionButton';
-import { StockOpnameWorkspace } from '../../components/admin/StockOpnameWorkspace';
+import { ActionButton, PencilIcon, TrashIcon } from '../../components/admin/ActionButton';
 import { useActionIsland } from '../../components/admin/island/IslandSystem';
 
-type WorkspaceTab = 'input' | 'opname';
 type PartListFilter = 'all' | 'low';
 
 const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
@@ -37,12 +33,10 @@ const V2MasterWarehouse: React.FC = () => {
   } = useAdmin();
   const { notify } = useActionIsland();
 
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('input');
   const [listFilter, setListFilter] = useState<PartListFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [nama, setNama] = useState('');
-  const [jenis, setJenis] = useState<PartJenis>('reguler');
   const [satuan, setSatuan] = useState('pcs');
   const [stokAwal, setStokAwal] = useState('0');
   const [stokMin, setStokMin] = useState('5');
@@ -75,19 +69,12 @@ const V2MasterWarehouse: React.FC = () => {
   const actorId = user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : 'MG-001');
   const auditRole = role === 'master_helpdesk' ? 'master_helpdesk' : 'master_admin';
 
-  const stockOpnameActor: VerifiedWarehouseUser = {
-    id: actorId,
-    nama: actorName,
-    email: user?.email || (role === 'master_helpdesk' ? 'helpdesk@mybengkel.com' : 'masteradmin@mybengkel.com'),
-    role: 'master_gudang',
-  };
-
   const nextKodePreview = getNextPartCode();
 
   const partRows = useMemo(() => {
     return parts.map((p) => {
       const stok = computeStock(p, stockMovements);
-      const critical = p.jenis === 'reguler' && stok <= (p.stokMin ?? 0);
+      const critical = stok <= (p.stokMin ?? 0);
       return { part: p, stok, critical };
     });
   }, [parts, stockMovements]);
@@ -122,7 +109,7 @@ const V2MasterWarehouse: React.FC = () => {
     const parsedStokAwal = Number(stokAwal);
     const parsedHargaBeli = Number(hargaBeli);
     const parsedHargaJual = Number(hargaJual);
-    const parsedStokMin = jenis === 'ho' ? null : Number(stokMin);
+    const parsedStokMin = Number(stokMin);
 
     if (Number.isNaN(parsedStokAwal) || parsedStokAwal < 0) {
       setFormError('Stok awal harus bernilai 0 atau lebih.');
@@ -137,14 +124,13 @@ const V2MasterWarehouse: React.FC = () => {
       setFormError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
       return;
     }
-    if (jenis === 'reguler' && (parsedStokMin === null || Number.isNaN(parsedStokMin) || parsedStokMin < 0)) {
-      setFormError('Stok minimum untuk part reguler minimal 0.');
+    if (Number.isNaN(parsedStokMin) || parsedStokMin < 0) {
+      setFormError('Stok minimum minimal 0.');
       return;
     }
 
     const res = createMasterPart({
       nama,
-      jenis,
       satuan,
       stokAwal: parsedStokAwal,
       stokMin: parsedStokMin,
@@ -204,7 +190,7 @@ const V2MasterWarehouse: React.FC = () => {
     const parsedStok = Number(editStok);
     const parsedBeli = Number(editHargaBeli);
     const parsedJual = Number(editHargaJual);
-    const parsedMin = editPartTarget.jenis === 'ho' ? null : Number(editStokMin);
+    const parsedMin = Number(editStokMin);
 
     if (Number.isNaN(parsedStok) || parsedStok < 0) {
       setEditError('Stok tidak boleh kurang dari 0.');
@@ -214,7 +200,7 @@ const V2MasterWarehouse: React.FC = () => {
       setEditError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
       return;
     }
-    if (editPartTarget.jenis === 'reguler' && (parsedMin === null || Number.isNaN(parsedMin) || parsedMin < 0)) {
+    if (Number.isNaN(parsedMin) || parsedMin < 0) {
       setEditError('Stok minimum wajib diisi (minimal 0).');
       return;
     }
@@ -306,12 +292,6 @@ const V2MasterWarehouse: React.FC = () => {
       ),
     },
     {
-      key: 'jenis',
-      header: 'Jenis',
-      isStatus: true,
-      render: (p) => <StatusChip status={p.jenis} />,
-    },
-    {
       key: 'stok',
       header: 'Stok',
       align: 'right',
@@ -331,7 +311,7 @@ const V2MasterWarehouse: React.FC = () => {
       mobileHidden: true,
       render: (p) => (
         <span className="tabular-nums text-[#646B7C]">
-          {p.jenis === 'ho' ? 'HO' : `${p.stokMin ?? 0} ${p.satuan}`}
+          {`${p.stokMin ?? 0} ${p.satuan}`}
         </span>
       ),
     },
@@ -353,7 +333,7 @@ const V2MasterWarehouse: React.FC = () => {
       isStatus: true,
       render: (p) => {
         const stok = computeStock(p, stockMovements);
-        const critical = p.jenis === 'reguler' && stok <= (p.stokMin ?? 0);
+        const critical = stok <= (p.stokMin ?? 0);
         return <StatusChip status={critical ? 'Kritis' : 'Aman'} needsAction={critical} />;
       },
     },
@@ -393,166 +373,142 @@ const V2MasterWarehouse: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Input Part"
-        decision="Tambahkan sparepart baru, perbarui harga dan stok gudang, atau jalankan sesi stok opname secara langsung."
-      />
+      <DataCard title="Input Part Baru">
+        <form onSubmit={handleCreatePart} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField id="new-kode" label="Kode Part (Otomatis)">
+              <input
+                id="new-kode"
+                type="text"
+                readOnly
+                value={nextKodePreview}
+                className="admin-input h-10 bg-[#F6F7FA] font-mono text-[#646B7C]"
+              />
+            </FormField>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FilterTabs
-          ariaLabel="Mode pengelolaan Input Part"
-          value={workspaceTab}
-          onChange={(v) => setWorkspaceTab((v === 'opname' ? 'opname' : 'input') as WorkspaceTab)}
-          tabs={[
-            { value: 'input', label: 'Input & Kelola Part', count: totalCount },
-            { value: 'opname', label: 'Stok Opname' },
-          ]}
-        />
-        <span className="inline-flex items-center px-3 py-1.5 rounded-[10px] bg-[#F6F7FA] border border-[#E6E9F0] text-[12px] text-[#454D5F]">
-          Operator aktif: <strong className="ml-1 text-[#1E2230]">{actorName}</strong>
-        </span>
-      </div>
+            <FormField id="new-nama" label="Nama Part">
+              <input
+                id="new-nama"
+                type="text"
+                value={nama}
+                onChange={(e) => setNama(e.target.value)}
+                placeholder="Contoh: Kampas Rem Depan Beat"
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
+          </div>
 
-      {workspaceTab === 'opname' ? (
-        <StockOpnameWorkspace verifiedUser={stockOpnameActor} />
-      ) : (
-        <>
-          <DataCard title="Input Part Baru">
-            <form onSubmit={handleCreatePart} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormField id="new-kode" label="Kode Part (Otomatis)">
-                  <input
-                    id="new-kode"
-                    type="text"
-                    readOnly
-                    value={nextKodePreview}
-                    className="admin-input h-10 bg-[#F6F7FA] font-mono text-[#646B7C]"
-                  />
-                </FormField>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <FormField id="new-satuan" label="Satuan">
+              <select
+                id="new-satuan"
+                value={satuan}
+                onChange={(e) => setSatuan(e.target.value)}
+                className="admin-input h-10"
+              >
+                {SATUAN_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </FormField>
 
-                <FormField id="new-nama" label="Nama Part">
-                  <input
-                    id="new-nama"
-                    type="text"
-                    value={nama}
-                    onChange={(e) => setNama(e.target.value)}
-                    placeholder="Contoh: Kampas Rem Depan Beat"
-                    className="admin-input h-10"
-                    required
-                  />
-                </FormField>
+            <FormField id="new-stok-awal" label="Stok Awal">
+              <input
+                id="new-stok-awal"
+                type="number"
+                min={0}
+                value={stokAwal}
+                onChange={(e) => setStokAwal(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
 
-                <FormField id="new-jenis" label="Jenis Part">
-                  <select
-                    id="new-jenis"
-                    value={jenis}
-                    onChange={(e) => setJenis(e.target.value === 'ho' ? 'ho' : 'reguler')}
-                    className="admin-input h-10"
-                  >
-                    <option value="reguler">Reguler</option>
-                    <option value="ho">HO (Heavy / Khusus)</option>
-                  </select>
-                </FormField>
-              </div>
+            <FormField id="new-stok-min" label="Stok Minimum">
+              <input
+                id="new-stok-min"
+                type="number"
+                min={0}
+                value={stokMin}
+                onChange={(e) => setStokMin(e.target.value)}
+                placeholder="5"
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <FormField id="new-satuan" label="Satuan">
-                  <select
-                    id="new-satuan"
-                    value={satuan}
-                    onChange={(e) => setSatuan(e.target.value)}
-                    className="admin-input h-10"
-                  >
-                    {SATUAN_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
+            <FormField id="new-harga-beli" label="Harga Beli (Rp)">
+              <input
+                id="new-harga-beli"
+                type="number"
+                min={0}
+                value={hargaBeli}
+                onChange={(e) => setHargaBeli(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
 
-                <FormField id="new-stok-awal" label="Stok Awal">
-                  <input
-                    id="new-stok-awal"
-                    type="number"
-                    min={0}
-                    value={stokAwal}
-                    onChange={(e) => setStokAwal(e.target.value)}
-                    className="admin-input h-10"
-                    required
-                  />
-                </FormField>
+            <FormField id="new-harga-jual" label="Harga Jual (Rp)">
+              <input
+                id="new-harga-jual"
+                type="number"
+                min={0}
+                value={hargaJual}
+                onChange={(e) => setHargaJual(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
+          </div>
 
-                <FormField
-                  id="new-stok-min"
-                  label="Stok Minimum"
-                  helperText={jenis === 'ho' ? 'Tidak digunakan untuk HO' : undefined}
-                >
-                  <input
-                    id="new-stok-min"
-                    type="number"
-                    min={0}
-                    disabled={jenis === 'ho'}
-                    value={jenis === 'ho' ? '' : stokMin}
-                    onChange={(e) => setStokMin(e.target.value)}
-                    placeholder={jenis === 'ho' ? 'Otomatis' : '5'}
-                    className="admin-input h-10 disabled:bg-[#F6F7FA]"
-                    required={jenis === 'reguler'}
-                  />
-                </FormField>
+          <FormField id="new-catatan" label="Catatan Part" optional>
+            <input
+              id="new-catatan"
+              type="text"
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              placeholder="Contoh: Stok awal rak A2"
+              className="admin-input h-10"
+            />
+          </FormField>
 
-                <FormField id="new-harga-beli" label="Harga Beli (Rp)">
-                  <input
-                    id="new-harga-beli"
-                    type="number"
-                    min={0}
-                    value={hargaBeli}
-                    onChange={(e) => setHargaBeli(e.target.value)}
-                    className="admin-input h-10"
-                    required
-                  />
-                </FormField>
+          {formError && (
+            <div
+              role="alert"
+              className="rounded-[12px] bg-[rgba(242,70,111,0.12)] border border-[rgba(242,70,111,0.28)] px-3.5 py-2.5 text-[13px] font-medium text-[#D62E5A]"
+            >
+              {formError}
+            </div>
+          )}
 
-                <FormField id="new-harga-jual" label="Harga Jual (Rp)">
-                  <input
-                    id="new-harga-jual"
-                    type="number"
-                    min={0}
-                    value={hargaJual}
-                    onChange={(e) => setHargaJual(e.target.value)}
-                    className="admin-input h-10"
-                    required
-                  />
-                </FormField>
-              </div>
-
-              <FormField id="new-catatan" label="Catatan Part" optional>
-                <input
-                  id="new-catatan"
-                  type="text"
-                  value={catatan}
-                  onChange={(e) => setCatatan(e.target.value)}
-                  placeholder="Contoh: Stok awal rak A2"
-                  className="admin-input h-10"
-                />
-              </FormField>
-
-              {formError && (
-                <div
-                  role="alert"
-                  className="rounded-[12px] bg-[rgba(242,70,111,0.12)] border border-[rgba(242,70,111,0.28)] px-3.5 py-2.5 text-[13px] font-medium text-[#D62E5A]"
-                >
-                  {formError}
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <ActionButton intent="add" type="submit" icon={<PlusIcon size={16} />}>
-                  Simpan Part Baru
-                </ActionButton>
-              </div>
-            </form>
-          </DataCard>
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 min-h-[42px] px-4 py-2 rounded-[12px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-[14px] border border-blue-600 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            >
+              <svg
+                className="w-4 h-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              <span>Simpan Part Baru</span>
+            </button>
+          </div>
+        </form>
+      </DataCard>
 
           <DataCard
             title="Katalog Part Gudang"
@@ -588,8 +544,6 @@ const V2MasterWarehouse: React.FC = () => {
               }
             />
           </DataCard>
-        </>
-      )}
 
       <SidePanel
         isOpen={Boolean(editPartTarget)}
@@ -649,19 +603,17 @@ const V2MasterWarehouse: React.FC = () => {
               </FormField>
             </div>
 
-            {editPartTarget.jenis === 'reguler' && (
-              <FormField id="master-edit-min" label="Stok Minimum">
-                <input
-                  id="master-edit-min"
-                  type="number"
-                  min={0}
-                  value={editStokMin}
-                  onChange={(e) => setEditStokMin(e.target.value)}
-                  className="admin-input h-10"
-                  required
-                />
-              </FormField>
-            )}
+            <FormField id="master-edit-min" label="Stok Minimum">
+              <input
+                id="master-edit-min"
+                type="number"
+                min={0}
+                value={editStokMin}
+                onChange={(e) => setEditStokMin(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
 
             <div className="grid grid-cols-2 gap-3">
               <FormField id="master-edit-beli" label="Harga Beli (Rp)">

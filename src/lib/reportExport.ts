@@ -8,7 +8,6 @@ import {
 } from './reportCalculations';
 import { formatRupiah, nowTime, todayISO } from './format';
 import type { AuditLog } from './auditTrail';
-import { STOCK_OPNAME_STATUS_LABELS } from './stockOpname';
 
 // Helper to sanitize filenames
 function sanitizeFilename(str: string): string {
@@ -340,10 +339,9 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
     ['Dicetak Pada', `${todayISO()} ${nowTime()}`],
     [],
     ['METRIK GUDANG', 'NILAI'],
-    ['Total Jenis Part', data.kpis.totalJenisPart],
+    ['Total Item Part', data.kpis.totalItemPart],
     ['Total Part Aman', data.kpis.partAmanCount],
     ['Total Part Kritis', data.kpis.partKritisCount],
-    ['Total Jenis Part HO', data.kpis.partHoCount],
     ['Total Qty Stok Tersedia', data.kpis.totalStokTersedia],
     ['Total Barang Masuk (pcs)', data.kpis.totalBarangMasuk],
     ['Total Barang Keluar (pcs)', data.kpis.totalBarangKeluar],
@@ -361,7 +359,6 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
     'Harga Beli (Rp)',
     'Harga Jual (Rp)',
     'Stok Minimum',
-    'Jenis',
     'Status',
     'Tanggal Dibuat',
   ];
@@ -375,7 +372,6 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
       p.hargaBeli,
       p.hargaJual,
       p.stokMinimum,
-      p.jenis,
       p.status,
       p.tanggalDibuat,
     ]),
@@ -633,10 +629,9 @@ function appendStandardSheets(
       ['Periode', warehouseData.periodLabel],
       ['Dicetak Pada', `${todayISO()} ${nowTime()}`],
       [],
-      ['Total Jenis Part', warehouseData.kpis.totalJenisPart],
+      ['Total Item Part', warehouseData.kpis.totalItemPart],
       ['Total Part Aman', warehouseData.kpis.partAmanCount],
       ['Total Part Kritis', warehouseData.kpis.partKritisCount],
-      ['Total Part HO', warehouseData.kpis.partHoCount],
       ['Total Qty Stok Tersedia', warehouseData.kpis.totalStokTersedia],
       ['Barang Masuk (pcs)', warehouseData.kpis.totalBarangMasuk],
       ['Barang Keluar (pcs)', warehouseData.kpis.totalBarangKeluar],
@@ -655,7 +650,6 @@ function appendStandardSheets(
         'Harga Beli',
         'Harga Jual',
         'Min Stok',
-        'Jenis',
         'Status',
         'Tanggal Dibuat',
       ],
@@ -667,7 +661,6 @@ function appendStandardSheets(
         p.hargaBeli,
         p.hargaJual,
         p.stokMinimum,
-        p.jenis.toUpperCase(),
         p.status,
         p.tanggalDibuat,
       ]),
@@ -706,37 +699,6 @@ function appendStandardSheets(
     const wsMov = XLSX.utils.aoa_to_sheet(movRows);
     wsMov['!cols'] = fitColumnWidths(movRows);
     XLSX.utils.book_append_sheet(wb, wsMov, 'Gudang - Mutasi Stok');
-
-    // 12. Gudang - Stok Opname
-    const opnameRows = [
-      [
-        'Kode Opname',
-        'Tanggal Opname',
-        'Petugas',
-        'Total Part',
-        'Part Sesuai',
-        'Part Lebih',
-        'Part Kurang',
-        'Status',
-        'Disetujui Oleh',
-        'Tanggal Persetujuan',
-      ],
-      ...warehouseData.stockOpname.rows.map((so) => [
-        so.kodeOpname,
-        so.tanggalOpname,
-        so.petugas,
-        so.jumlahPart,
-        so.partSesuai,
-        so.partLebih,
-        so.partKurang,
-        STOCK_OPNAME_STATUS_LABELS[so.status] || so.status,
-        so.disetujuiOleh,
-        so.tanggalPersetujuan,
-      ]),
-    ];
-    const wsOpname = XLSX.utils.aoa_to_sheet(opnameRows);
-    wsOpname['!cols'] = fitColumnWidths(opnameRows);
-    XLSX.utils.book_append_sheet(wb, wsOpname, 'Gudang - Stok Opname');
   }
 }
 
@@ -892,10 +854,6 @@ export function exportExcelMasterAdminReports(
   const ws26 = createAuditSheet(persetujuanLogs, 'Riwayat Otorisasi & Persetujuan');
   XLSX.utils.book_append_sheet(wb, ws26, 'Audit - Persetujuan');
 
-  // 27. Riwayat Stok Opname
-  const opnameLogs = auditLogs.filter((l) => l.module === 'stock_opname');
-  const ws27 = createAuditSheet(opnameLogs, 'Riwayat Sesi & Persetujuan Stok Opname');
-  XLSX.utils.book_append_sheet(wb, ws27, 'Audit - Stok Opname');
 
   // 28. Riwayat Input Manual
   const inputManualLogs = auditLogs.filter((l) => l.module === 'input_manual');
@@ -1212,7 +1170,7 @@ export function exportPdfWarehouseReport(data: WarehouseReportData): void {
   doc.text('RINGKASAN EKSEKUTIF GUDANG', 14, startY);
 
   const kpiText = [
-    `Total Jenis Part: ${data.kpis.totalJenisPart} (Aman: ${data.kpis.partAmanCount}, Kritis: ${data.kpis.partKritisCount}, HO: ${data.kpis.partHoCount})`,
+    `Total Item Part: ${data.kpis.totalItemPart} (Aman: ${data.kpis.partAmanCount}, Kritis: ${data.kpis.partKritisCount})`,
     `Total Qty Stok Tersedia: ${data.kpis.totalStokTersedia} pcs`,
     `Mutasi Barang Periode Ini: Masuk ${data.kpis.totalBarangMasuk} pcs, Keluar ${data.kpis.totalBarangKeluar} pcs`,
   ];
@@ -1240,7 +1198,6 @@ export function exportPdfWarehouseReport(data: WarehouseReportData): void {
     formatRupiah(p.hargaBeli),
     formatRupiah(p.hargaJual),
     p.stokMinimum,
-    p.jenis.toUpperCase(),
     p.status,
     p.tanggalDibuat,
   ]);
@@ -1255,7 +1212,6 @@ export function exportPdfWarehouseReport(data: WarehouseReportData): void {
       'Harga Beli',
       'Harga Jual',
       'Min Stok',
-      'Jenis',
       'Status',
       'Tgl Dibuat',
     ]],
@@ -1397,47 +1353,13 @@ function addStandardPdfSections(
     p.stok,
     formatRupiah(p.hargaJual),
     p.stokMinimum,
-    p.jenis.toUpperCase(),
     p.status,
   ]);
 
   autoTable(doc, {
     startY: startY3 + 3,
-    head: [['Kode Part', 'Nama Part', 'Satuan', 'Stok', 'Harga Jual', 'Min Stok', 'Jenis', 'Status']],
+    head: [['Kode Part', 'Nama Part', 'Satuan', 'Stok', 'Harga Jual', 'Min Stok', 'Status']],
     body: partRows,
-    theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 1.5 },
-    headStyles: { fillColor: [26, 100, 176], textColor: [255, 255, 255] },
-  });
-
-  // 4. Stock Opname Section (New page)
-  doc.addPage();
-  const startY4 = addPdfHeader(
-    doc,
-    'Laporan Terintegrasi - Bagian 4: Audit Stok Opname',
-    warehouseData.periodLabel
-  );
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(30, 34, 48);
-  doc.text('RIWAYAT SESI AUDIT STOK OPNAME', 14, startY4);
-
-  const soRows = warehouseData.stockOpname.rows.map((s) => [
-    s.kodeOpname,
-    s.tanggalOpname,
-    s.petugas,
-    s.jumlahPart,
-    s.partSesuai,
-    s.partLebih,
-    s.partKurang,
-    STOCK_OPNAME_STATUS_LABELS[s.status] || s.status,
-    s.disetujuiOleh,
-  ]);
-
-  autoTable(doc, {
-    startY: startY4 + 3,
-    head: [['Kode Opname', 'Tgl Opname', 'Petugas', 'Total Part', 'Sesuai', 'Lebih', 'Kurang', 'Status', 'Disetujui Oleh']],
-    body: soRows,
     theme: 'grid',
     styles: { fontSize: 7, cellPadding: 1.5 },
     headStyles: { fillColor: [26, 100, 176], textColor: [255, 255, 255] },
@@ -1626,19 +1548,10 @@ export function exportPdfMasterAdminReports(
     )
   );
 
-  // 13. Riwayat Stok Opname
+  // 13. Riwayat Ekspor Laporan
   addPdfAuditSection(
     doc,
     13,
-    'Riwayat Sesi Stok Opname',
-    auditPeriodLabel,
-    auditLogs.filter((l) => l.module === 'stock_opname')
-  );
-
-  // 14. Riwayat Ekspor Laporan
-  addPdfAuditSection(
-    doc,
-    14,
     'Riwayat Ekspor Laporan & Dokumen',
     auditPeriodLabel,
     auditLogs.filter((l) => l.module === 'laporan' || l.action.toLowerCase().includes('export'))

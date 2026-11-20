@@ -4,7 +4,7 @@ import { useAdmin } from '../../context/AdminContext';
 import { useAuth } from '../../lib/mockAuth';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, type Column } from '../../components/admin/DataTable';
-import { ActionButton, DownloadIcon, PrinterIcon } from '../../components/admin/ActionButton';
+import { ActionButton, DownloadIcon } from '../../components/admin/ActionButton';
 import { StatusChip } from '../../components/admin/StatusChip';
 import { RollingNumber, useActionIsland } from '../../components/admin/island/IslandSystem';
 import { formatRupiah, todayISO } from '../../lib/format';
@@ -23,7 +23,6 @@ import {
   type SalesPartPerformanceRow,
   type WarehousePartConditionRow,
   type WarehouseMovementRow,
-  type WarehouseStockOpnameRow,
   calculateServiceReport,
   calculateSalesReport,
   calculateWarehouseReport,
@@ -50,12 +49,6 @@ import {
   DUMMY_ADMIN,
   DUMMY_MASTER,
 } from '../../lib/mockCredentials';
-import { printDocument } from '../../lib/printDocument';
-import {
-  buildPrintStokOpnameData,
-  STOCK_OPNAME_STATUS_LABELS,
-  type StockOpnameSession,
-} from '../../lib/stockOpname';
 
 // Mask sensitive fields in audit log payloads
 function maskSensitiveData(data: any): any {
@@ -102,25 +95,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
   const [auditModuleFilter, setAuditModuleFilter] = useState<string>('semua');
   const [auditSearch, setAuditSearch] = useState('');
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
-
-  const [stockOpnameSearch, setStockOpnameSearch] = useState('');
-
-  const handlePrintStockOpname = (explicitSession?: StockOpnameSession | null) => {
-    if (!canAccessWarehouseReport) {
-      notify('Akses ditolak: Anda tidak memiliki izin mencetak laporan gudang.');
-      return;
-    }
-    const target =
-      explicitSession ||
-      (adminStore.stockOpnames || []).find((s) => s.status === 'disetujui');
-    if (!target || target.status !== 'disetujui') {
-      notify('Belum ada sesi stok opname dengan status disetujui untuk dicetak.');
-      return;
-    }
-    const printData = buildPrintStokOpnameData(target);
-    printDocument('stok_opname', printData);
-    notify(`Laporan stok opname ${target.code} siap dicetak.`);
-  };
 
   // Unified Period State across entire reporting system
   const [period, setPeriod] = useState<ReportPeriod>({
@@ -310,14 +284,13 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
     { key: 'hargaBeli', header: 'Harga Beli', align: 'right', render: (r) => <span className="tabular-nums text-[#646B7C]">{formatRupiah(r.hargaBeli)}</span> },
     { key: 'hargaJual', header: 'Harga Jual', align: 'right', render: (r) => <span className="tabular-nums font-semibold">{formatRupiah(r.hargaJual)}</span> },
     { key: 'stokMinimum', header: 'Min Stok', align: 'center', render: (r) => <span className="tabular-nums">{r.stokMinimum}</span> },
-    { key: 'jenis', header: 'Jenis', align: 'center', render: (r) => <span className="uppercase text-[11px] font-mono px-2 py-0.5 rounded bg-[#EEF0F4]">{r.jenis}</span> },
     {
       key: 'status',
       header: 'Status',
       align: 'center',
       render: (r) => (
         <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-          r.status === 'Aman' ? 'bg-[#DEF7EC] text-[#03543F]' : r.status === 'Kritis' ? 'bg-[#FDE3E9] text-[#B4234A]' : 'bg-[#E4F2FE] text-[#1A64B0]'
+          r.status === 'Aman' ? 'bg-[#DEF7EC] text-[#03543F]' : 'bg-[#FDE3E9] text-[#B4234A]'
         }`}>
           {r.status}
         </span>
@@ -424,17 +397,16 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
       if ((targetScope === 'all' && canAccessWarehouseReport) || targetScope === 'warehouse') {
         pushRow(['=== BAGIAN 3: LAPORAN PENGELOLAAN GUDANG ===']);
         pushRow(['Metrik', 'Nilai']);
-        pushRow(['Total Jenis Part', warehouseData.kpis.totalJenisPart]);
+        pushRow(['Total Item Part', warehouseData.kpis.totalItemPart]);
         pushRow(['Part Stok Aman', warehouseData.kpis.partAmanCount]);
         pushRow(['Part Stok Kritis', warehouseData.kpis.partKritisCount]);
-        pushRow(['Part HO', warehouseData.kpis.partHoCount]);
         pushRow(['Total Stok Fisik', warehouseData.kpis.totalStokTersedia]);
         pushRow(['Total Barang Masuk', warehouseData.kpis.totalBarangMasuk]);
         pushRow(['Total Barang Keluar', warehouseData.kpis.totalBarangKeluar]);
         pushRow([]);
-        pushRow(['Kode Part', 'Nama Part', 'Satuan', 'Jenis', 'Stok', 'Stok Minimum', 'Harga Beli', 'Harga Jual', 'Status', 'Tgl Dibuat']);
+        pushRow(['Kode Part', 'Nama Part', 'Satuan', 'Stok', 'Stok Minimum', 'Harga Beli', 'Harga Jual', 'Status', 'Tgl Dibuat']);
         for (const r of warehouseData.tables.partConditions) {
-          pushRow([r.kodePart, r.namaPart, r.satuan, r.jenis, r.stok, r.stokMinimum, r.hargaBeli, r.hargaJual, r.status, r.tanggalDibuat]);
+          pushRow([r.kodePart, r.namaPart, r.satuan, r.stok, r.stokMinimum, r.hargaBeli, r.hargaJual, r.status, r.tanggalDibuat]);
         }
         pushRow([]);
         pushRow(['Tanggal Mutasi', 'Kode Part', 'Nama Part', 'Jenis Mutasi', 'Masuk', 'Keluar', 'Referensi', 'Sumber', 'Dicatat Oleh']);
@@ -595,127 +567,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
       (r) => r.kodePart.toLowerCase().includes(q) || r.namaPart.toLowerCase().includes(q)
     );
   }, [warehouseData.tables.partConditions, warehousePartSearch]);
-
-  const stockOpnameColumns: Column<WarehouseStockOpnameRow>[] = [
-    {
-      key: 'kodeOpname',
-      header: 'Kode Sesi',
-      render: (r) => (
-        <samp className="font-mono font-semibold text-[#1E2230] text-[13px]">
-          {r.kodeOpname}
-        </samp>
-      ),
-    },
-    {
-      key: 'tanggalOpname',
-      header: 'Tanggal Mulai',
-      render: (r) => (
-        <span className="tabular-nums text-[12px] text-[#646B7C]">
-          {r.tanggalOpname}
-        </span>
-      ),
-    },
-    {
-      key: 'petugas',
-      header: 'Dibuat Oleh',
-      render: (r) => <span className="font-medium text-[#1E2230]">{r.petugas}</span>,
-    },
-    {
-      key: 'jumlahPart',
-      header: 'Total Part',
-      align: 'right',
-      render: (r) => (
-        <data value={r.jumlahPart} className="tabular-nums font-semibold">
-          {r.jumlahPart}
-        </data>
-      ),
-    },
-    {
-      key: 'partSesuai',
-      header: 'Sesuai',
-      align: 'right',
-      render: (r) => (
-        <span className="tabular-nums text-[#15803D] font-medium">
-          {r.partSesuai}
-        </span>
-      ),
-    },
-    {
-      key: 'selisih',
-      header: 'Selisih (+/-)',
-      align: 'right',
-      render: (r) => (
-        <div className="tabular-nums text-[12px] flex items-center justify-end gap-1 font-medium">
-          <span className="text-[#1D6FC4]">+{r.partLebih}</span>
-          <span className="text-[#646B7C]">/</span>
-          <span className="text-[#B4234A]">-{r.partKurang}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'disetujuiOleh',
-      header: 'Disetujui Oleh',
-      render: (r) => (
-        <div className="text-[12px]">
-          <div className="font-medium text-[#1E2230]">{r.disetujuiOleh}</div>
-          {r.tanggalPersetujuan !== '-' && (
-            <div className="text-[#646B7C] tabular-nums text-[11px]">
-              {r.tanggalPersetujuan}
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (r) => (
-        <StatusChip
-          status={
-            r.status === 'disetujui'
-              ? 'Disetujui'
-              : r.status === 'ditolak'
-              ? 'Ditolak'
-              : r.status === 'dibatalkan'
-              ? 'Batal'
-              : r.status === 'perlu_hitung_ulang'
-              ? 'Perlu tindakan'
-              : 'Baru'
-          }
-        />
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (r) =>
-        r.status === 'disetujui' ? (
-          <button
-            type="button"
-            onClick={() => handlePrintStockOpname(r.sessionRef)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-semibold text-[#1D6FC4] hover:bg-[#EBF5FB] rounded-[8px] transition-colors"
-            title="Cetak Laporan Resmi Sesi Ini"
-          >
-            <PrinterIcon className="w-3.5 h-3.5" />
-            <span>Cetak</span>
-          </button>
-        ) : (
-          <span className="text-[12px] text-[#9CA3AF] italic">Belum disetujui</span>
-        ),
-    },
-  ];
-
-  const filteredStockOpnames = useMemo(() => {
-    if (!stockOpnameSearch.trim()) return warehouseData.stockOpname.rows;
-    const q = stockOpnameSearch.toLowerCase();
-    return warehouseData.stockOpname.rows.filter(
-      (r) =>
-        r.kodeOpname.toLowerCase().includes(q) ||
-        r.petugas.toLowerCase().includes(q) ||
-        r.disetujuiOleh.toLowerCase().includes(q)
-    );
-  }, [warehouseData.stockOpname.rows, stockOpnameSearch]);
 
   const filteredAuditLogs = useMemo(() => {
     let logs = adminStore.auditLogs || [];
@@ -1494,9 +1345,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
           {/* Warehouse KPI Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
             <div className="p-4 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
-              <div className="text-[12px] text-[#646B7C]">Total Jenis Part</div>
+              <div className="text-[12px] text-[#646B7C]">Total Item Part</div>
               <div className="text-[22px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
-                <RollingNumber value={warehouseData.kpis.totalJenisPart} />
+                <RollingNumber value={warehouseData.kpis.totalItemPart} />
               </div>
               <div className="text-[11px] text-[#9CA3AF] mt-0.5">Katalog terdaftar</div>
             </div>
@@ -1539,7 +1390,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                 segments={[
                   { label: 'Aman', value: warehouseData.charts.kondisiStokDoughnut.aman, color: '#10B981' },
                   { label: 'Kritis', value: warehouseData.charts.kondisiStokDoughnut.kritis, color: '#EF4444' },
-                  { label: 'HO', value: warehouseData.charts.kondisiStokDoughnut.ho, color: '#3B82F6' },
                 ]}
               />
             </div>
@@ -1605,103 +1455,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
             />
           </DataCard>
 
-          {/* Laporan Stok Opname Subsection */}
-          <div className="space-y-4 pt-6 border-t border-[#EEF0F4]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-[16px] font-bold text-[#1E2230]">Laporan Stok Opname</h3>
-                <p className="text-[12px] text-[#646B7C]">
-                  Audit fisik inventaris, rekonsiliasi selisih buku stok, dan riwayat persetujuan
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <ActionButton
-                  intent="start"
-                  onClick={() => handlePrintStockOpname(null)}
-                  className="!h-8 !text-[12px]"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <PrinterIcon className="w-3.5 h-3.5" />
-                    Cetak Laporan Stok Opname
-                  </span>
-                </ActionButton>
-              </div>
-            </div>
-
-            {/* Opname KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
-                <div className="text-[11px] text-[#646B7C]">Total Sesi Opname</div>
-                <div className="text-[20px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
-                  <RollingNumber value={warehouseData.stockOpname.kpis.totalSesiOpname} />
-                </div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">Seluruh periode</div>
-              </div>
-
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#86EFAC] bg-gradient-to-br from-white to-[#F0FDF4] shadow-sm">
-                <div className="text-[11px] font-semibold text-[#15803D]">Disetujui</div>
-                <div className="text-[20px] font-extrabold text-[#15803D] mt-1 tabular-nums">
-                  <RollingNumber value={warehouseData.stockOpname.kpis.totalSesiDisetujui} />
-                </div>
-                <div className="text-[10px] text-[#15803D] mt-0.5">Koreksi dibukukan</div>
-              </div>
-
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#FDE68A] bg-gradient-to-br from-white to-[#FFFBEB] shadow-sm">
-                <div className="text-[11px] font-semibold text-[#B45309]">Menunggu Review</div>
-                <div className="text-[20px] font-extrabold text-[#B45309] mt-1 tabular-nums">
-                  <RollingNumber value={warehouseData.stockOpname.kpis.totalSesiMenunggu} />
-                </div>
-                <div className="text-[10px] text-[#B45309] mt-0.5">Perlu persetujuan</div>
-              </div>
-
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
-                <div className="text-[11px] text-[#646B7C]">Part Dihitung</div>
-                <div className="text-[20px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
-                  <RollingNumber value={warehouseData.stockOpname.kpis.totalPartDihitung} />
-                </div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">Baris fisik diverifikasi</div>
-              </div>
-
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
-                <div className="text-[11px] text-[#646B7C]">Part Selisih</div>
-                <div className="text-[20px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
-                  <span className="text-[#1D6FC4]">+{warehouseData.stockOpname.kpis.totalPartLebih}</span>{' '}/{' '}
-                  <span className="text-[#B4234A]">-{warehouseData.stockOpname.kpis.totalPartKurang}</span>
-                </div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">Lebih / Kurang</div>
-              </div>
-
-              <div className="p-3.5 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
-                <div className="text-[11px] text-[#646B7C]">Sesi Ditolak</div>
-                <div className="text-[20px] font-extrabold text-[#B4234A] mt-1 tabular-nums">
-                  <RollingNumber value={warehouseData.stockOpname.kpis.totalSesiDitolak} />
-                </div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">Tidak dibukukan</div>
-              </div>
-            </div>
-
-            {/* Opname Table */}
-            <DataCard
-              title="Riwayat Sesi Stok Opname"
-              actions={
-                <input
-                  type="text"
-                  value={stockOpnameSearch}
-                  onChange={(e) => setStockOpnameSearch(e.target.value)}
-                  placeholder="Cari kode opname atau petugas..."
-                  className="admin-input !h-8 text-[12px] w-full sm:w-56"
-                />
-              }
-            >
-              <DataTable
-                columns={stockOpnameColumns}
-                data={filteredStockOpnames}
-                keyExtractor={(r) => r.kodeOpname}
-                swapKey={`wh-stock-opname-${period.mode}-${period.dateStr}-${stockOpnameSearch}`}
-                emptyMessage="Tidak ada riwayat sesi stok opname pada periode ini."
-              />
-            </DataCard>
-          </div>
         </section>
       )}
 
@@ -1845,7 +1598,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                     { id: 'servis', label: 'Servis & WO' },
                     { id: 'penjualan', label: 'Penjualan' },
                     { id: 'gudang', label: 'Gudang & Mutasi' },
-                    { id: 'stock_opname', label: 'Stok Opname' },
                     { id: 'persetujuan', label: 'Persetujuan' },
                     { id: 'laporan', label: 'Ekspor Laporan' },
                   ].map((tab) => (

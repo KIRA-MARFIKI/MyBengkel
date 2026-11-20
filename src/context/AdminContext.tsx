@@ -57,18 +57,6 @@ import { supabase } from '../lib/supabase';
 import { formatRupiah } from '../lib/format';
 import { printDocument } from '../lib/printDocument';
 import {
-  StockOpnameSession,
-  initialStockOpnames,
-  createStockOpname as libCreateStockOpname,
-  saveStockOpnameCount as libSaveStockOpnameCount,
-  submitStockOpname as libSubmitStockOpname,
-  requestStockOpnameRecount as libRequestStockOpnameRecount,
-  approveStockOpname as libApproveStockOpname,
-  rejectStockOpname as libRejectStockOpname,
-  cancelStockOpname as libCancelStockOpname,
-  StockOpnameScope,
-} from '../lib/stockOpname';
-import {
   AuditLog,
   initialAuditLogs,
   getNextAuditCode,
@@ -77,8 +65,8 @@ import {
 
 const STORAGE_KEY = 'mybengkel_admin_store_v2';
 
-export type { StockOpnameSession, StockOpnameScope, AuditLog };
-export { initialStockOpnames, initialAuditLogs };
+export type { AuditLog };
+export { initialAuditLogs };
 
 export interface PersistedAdminStore {
   mechanics: Mechanic[];
@@ -97,7 +85,6 @@ export interface PersistedAdminStore {
   correctionRequests: CorrectionRequest[];
   knowledgeBase: KnowledgeBaseArticle[];
   manualEntries: ManualEntry[];
-  stockOpnames: StockOpnameSession[];
   auditLogs: AuditLog[];
 }
 
@@ -168,7 +155,6 @@ const createDefaultStore = (): PersistedAdminStore => ({
   correctionRequests: initialCorrectionRequests,
   knowledgeBase: initialKnowledgeBase,
   manualEntries: initialManualEntries,
-  stockOpnames: initialStockOpnames,
   auditLogs: initialAuditLogs,
 });
 
@@ -180,8 +166,7 @@ const normalizePart = (raw: Partial<Part>): Part => {
     raw.jenis === 'ho' || raw.partType === 'HO' ? 'ho' : 'reguler';
   const hargaBeli = raw.hargaBeli ?? raw.buyPrice ?? 0;
   const hargaJual = raw.hargaJual ?? raw.sellPrice ?? 0;
-  const stokMin =
-    jenis === 'ho' ? null : raw.stokMin !== undefined ? raw.stokMin : (raw.minStock ?? 1);
+  const stokMin = raw.stokMin !== undefined && raw.stokMin !== null ? raw.stokMin : (raw.minStock ?? 1);
   const createdAt = raw.createdAt || `${formatTodayDate()} 08.00`;
 
   return makePartRecord({
@@ -280,7 +265,6 @@ const loadInitialStore = (): PersistedAdminStore => {
       correctionRequests: cleanedHelpdesk.correctionRequests,
       knowledgeBase: cleanedHelpdesk.knowledgeBase,
       manualEntries: parsed.manualEntries ?? defaults.manualEntries,
-      stockOpnames: Array.isArray(parsed.stockOpnames) ? parsed.stockOpnames : defaults.stockOpnames,
       auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : defaults.auditLogs,
     };
   } catch {
@@ -404,7 +388,6 @@ const normalizeRemoteStore = (
     correctionRequests: cleanedHelpdesk.correctionRequests,
     knowledgeBase: cleanedHelpdesk.knowledgeBase,
     manualEntries: Array.isArray(raw.manualEntries) ? raw.manualEntries : defaults.manualEntries,
-    stockOpnames: Array.isArray(raw.stockOpnames) ? raw.stockOpnames : defaults.stockOpnames,
     auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : defaults.auditLogs,
   };
 };
@@ -675,11 +658,11 @@ async function syncWarehousePartToSupabase(
       p_kode: part.kode,
       p_nama: part.nama,
       p_satuan: part.satuan,
-      p_jenis: part.jenis,
+      p_jenis: part.jenis || null,
       p_stok: Math.max(0, Math.round(stok)),
       p_harga_beli: part.hargaBeli,
       p_harga_jual: part.hargaJual,
-      p_stok_min: part.jenis === 'ho' ? null : (part.stokMin ?? 1),
+      p_stok_min: part.stokMin ?? 1,
       p_catatan: catatan ?? null,
       p_created_at: part.createdAt || null,
       p_payload: part as unknown as Record<string, unknown>,
@@ -693,7 +676,7 @@ async function syncWarehousePartToSupabase(
 export interface CreateMasterPartInput {
   nama: string;
   satuan: string;
-  jenis: PartJenis;
+  jenis?: PartJenis;
   stokAwal: number;
   hargaBeli: number;
   hargaJual: number;
@@ -720,7 +703,7 @@ export function createMasterPart(input: CreateMasterPartInput): CreateMasterPart
 
   const sig =
     input.submissionId ||
-    `newpart|${trimmedNama.toLowerCase()}|${input.satuan}|${input.jenis}|${input.stokAwal}`;
+    `newpart|${trimmedNama.toLowerCase()}|${input.satuan}|${input.stokAwal}`;
 
   if (sig && sig === lastMasterPartSig && lastMasterPartCode) {
     const existing = state.parts.find((p) => p.kode === lastMasterPartCode);
@@ -738,8 +721,7 @@ export function createMasterPart(input: CreateMasterPartInput): CreateMasterPart
 
   const kode = getNextPartCode();
   const now = formatNowTimestamp();
-  const jenis: PartJenis = input.jenis === 'ho' ? 'ho' : 'reguler';
-  const stokMin = jenis === 'ho' ? null : Math.max(0, Math.round(input.stokMin ?? 1));
+  const stokMin = Math.max(0, Math.round(input.stokMin ?? 1));
   const hargaBeli = Math.max(0, Math.round(input.hargaBeli || 0));
   const hargaJual = Math.max(0, Math.round(input.hargaJual || 0));
   const stokAwal = Math.max(0, Math.round(input.stokAwal || 0));
@@ -748,7 +730,6 @@ export function createMasterPart(input: CreateMasterPartInput): CreateMasterPart
     kode,
     nama: trimmedNama,
     satuan: input.satuan,
-    jenis,
     hargaBeli,
     hargaJual,
     stokMin,
@@ -852,8 +833,7 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
 
   const nextHargaBeli = Math.max(0, Math.round(input.hargaBeli));
   const nextHargaJual = Math.max(0, Math.round(input.hargaJual));
-  const nextStokMin =
-    part.jenis === 'ho' ? null : Math.max(0, Math.round(input.stokMin ?? part.stokMin ?? 1));
+  const nextStokMin = Math.max(0, Math.round(input.stokMin ?? part.stokMin ?? 1));
   const currentStok = computeStock(part, state.stockMovements);
   const hasStockInput = typeof input.stokBaru === 'number' && !Number.isNaN(input.stokBaru);
   const nextStok = hasStockInput ? Math.max(0, Math.round(input.stokBaru!)) : currentStok;
@@ -895,7 +875,7 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
       newValue: formatRupiah(nextHargaJual),
     });
   }
-  if (part.jenis === 'reguler' && nextStokMin !== part.stokMin) {
+  if (nextStokMin !== part.stokMin) {
     changes.push({
       field: 'Stok Minimum',
       oldValue: String(part.stokMin ?? 0),
@@ -1046,196 +1026,6 @@ export function deleteMasterPart(input: DeleteMasterPartInput): DeleteMasterPart
     ok: true,
     deletedKode: part.kode,
   };
-}
-
-// -------------------------------------------------------------
-// WH-0 STOCK OPNAME OPERATIONS (PLAIN FUNCTIONS OUTSIDE COMPONENTS)
-// -------------------------------------------------------------
-
-export function createStockOpnameRecord(params: {
-  scope: StockOpnameScope;
-  notes?: string;
-  user: { id: string; nama: string };
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const res = libCreateStockOpname({
-    scope: params.scope,
-    notes: params.notes,
-    user: params.user,
-    parts: state.parts,
-    movements: state.stockMovements,
-    existingSessions: state.stockOpnames,
-  });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: [res.session, ...state.stockOpnames],
-  });
-  return res;
-}
-
-export function saveStockOpnameLineCount(params: {
-  sessionId: string;
-  lineId: string;
-  physicalQty: number;
-  varianceReason?: string;
-  user: { id: string; nama: string };
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  const res = libSaveStockOpnameCount({
-    session,
-    lineId: params.lineId,
-    physicalQty: params.physicalQty,
-    varianceReason: params.varianceReason,
-    user: params.user,
-    movements: state.stockMovements,
-  });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-  });
-  return res;
-}
-
-export function submitStockOpnameRecord(params: {
-  sessionId: string;
-  user: { id: string; nama: string };
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  const res = libSubmitStockOpname({ session, user: params.user });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-  });
-  return res;
-}
-
-export function requestStockOpnameRecountRecord(params: {
-  sessionId: string;
-  user: { id: string; nama: string };
-  reason: string;
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  const res = libRequestStockOpnameRecount({ session, user: params.user, reason: params.reason });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-  });
-  return res;
-}
-
-export function rejectStockOpnameRecord(params: {
-  sessionId: string;
-  user: { id: string; nama: string };
-  reason: string;
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  const res = libRejectStockOpname({ session, user: params.user, reason: params.reason });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-  });
-  return res;
-}
-
-export function cancelStockOpnameRecord(params: {
-  sessionId: string;
-  user: { id: string; nama: string };
-  reason: string;
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  const res = libCancelStockOpname({ session, user: params.user, reason: params.reason });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-  saveStore({
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-  });
-  return res;
-}
-
-export function approveStockOpnameRecord(params: {
-  sessionId: string;
-  user: { id: string; nama: string };
-}): { ok: boolean; session?: StockOpnameSession; error?: string } {
-  const state = getAdminStore();
-  const session = state.stockOpnames.find((s) => s.id === params.sessionId || s.code === params.sessionId);
-  if (!session) {
-    return { ok: false, error: 'Sesi stok opname tidak ditemukan.' };
-  }
-  let movSeq = 0;
-  const res = libApproveStockOpname({
-    session,
-    user: params.user,
-    currentMovements: state.stockMovements,
-    getNextMovementId: () => {
-      movSeq++;
-      return getNextSequentialId('SM', 4, [...state.stockMovements.map((m) => m.id), `SM-${movSeq}`]);
-    },
-  });
-  if (!res.ok || !res.session) {
-    return res;
-  }
-
-  const nextBaseState = {
-    ...state,
-    stockOpnames: state.stockOpnames.map((s) => (s.id === session.id ? res.session! : s)),
-    stockMovements: [...state.stockMovements, ...res.newMovements],
-  };
-
-  const { state: finalState } = appendAuditLog(nextBaseState, {
-    actorId: params.user.id || 'MG-001',
-    actorName: params.user.nama || 'Master Gudang Dummy',
-    actorRole: 'master_gudang',
-    event: 'stock_opname_approved',
-    category: 'bisnis',
-    module: 'stock_opname',
-    action: `Persetujuan hasil stok opname ${res.session.code} & pembukuan koreksi`,
-    entityType: 'StockOpnameSession',
-    entityId: res.session.code,
-    reference: res.newMovements?.[0]?.id,
-    afterData: { status: 'disetujui', correctionsCount: res.newMovements.length },
-    reason: 'Verifikasi fisik disahkan oleh Master Gudang.',
-    outcome: 'berhasil',
-  });
-
-  saveStore(finalState);
-  return res;
 }
 
 // -------------------------------------------------------------
@@ -2596,15 +2386,6 @@ interface AdminContextType extends PersistedAdminStore {
   expirePendingSale: typeof expirePendingSale;
   printSalesReceipt: typeof printSalesReceipt;
 
-  // WH-0 operations
-  createStockOpnameRecord: typeof createStockOpnameRecord;
-  saveStockOpnameLineCount: typeof saveStockOpnameLineCount;
-  submitStockOpnameRecord: typeof submitStockOpnameRecord;
-  requestStockOpnameRecountRecord: typeof requestStockOpnameRecountRecord;
-  rejectStockOpnameRecord: typeof rejectStockOpnameRecord;
-  cancelStockOpnameRecord: typeof cancelStockOpnameRecord;
-  approveStockOpnameRecord: typeof approveStockOpnameRecord;
-
   // EXPORT-0 operations
   recordAuditEvent: typeof recordAuditEvent;
   recordReportExportEvent: typeof recordReportExportEvent;
@@ -3200,13 +2981,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cancelPendingSale,
         expirePendingSale,
         printSalesReceipt,
-        createStockOpnameRecord,
-        saveStockOpnameLineCount,
-        submitStockOpnameRecord,
-        requestStockOpnameRecountRecord,
-        rejectStockOpnameRecord,
-        cancelStockOpnameRecord,
-        approveStockOpnameRecord,
         recordAuditEvent,
         recordReportExportEvent,
       }}

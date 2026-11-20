@@ -841,8 +841,7 @@ export interface WarehousePartConditionRow {
   hargaBeli: number;
   hargaJual: number;
   stokMinimum: number | string;
-  jenis: 'reguler' | 'ho';
-  status: 'Aman' | 'Kritis' | 'HO';
+  status: 'Aman' | 'Kritis';
   tanggalDibuat: string;
 }
 
@@ -859,34 +858,13 @@ export interface WarehouseMovementRow {
   catatan: string;
 }
 
-import {
-  StockOpnameSession,
-  StockOpnameStatus,
-  STOCK_OPNAME_STATUS_LABELS,
-} from './stockOpname';
-
-export interface WarehouseStockOpnameRow {
-  kodeOpname: string;
-  tanggalOpname: string;
-  petugas: string;
-  jumlahPart: number;
-  partSesuai: number;
-  partLebih: number;
-  partKurang: number;
-  status: StockOpnameStatus;
-  disetujuiOleh: string;
-  tanggalPersetujuan: string;
-  sessionRef: StockOpnameSession;
-}
-
 export interface WarehouseReportData {
   period: ReportPeriod;
   periodLabel: string;
   kpis: {
-    totalJenisPart: number;
+    totalItemPart: number;
     partAmanCount: number;
     partKritisCount: number;
-    partHoCount: number;
     totalStokTersedia: number;
     totalBarangMasuk: number;
     totalBarangKeluar: number;
@@ -895,7 +873,6 @@ export interface WarehouseReportData {
     kondisiStokDoughnut: {
       aman: number;
       kritis: number;
-      ho: number;
       total: number;
     };
     komposisiMutasiDoughnut: {
@@ -916,19 +893,6 @@ export interface WarehouseReportData {
     partConditions: WarehousePartConditionRow[];
     movements: WarehouseMovementRow[];
   };
-  stockOpname: {
-    kpis: {
-      totalSesiOpname: number;
-      totalSesiDisetujui: number;
-      totalSesiMenunggu: number;
-      totalPartDihitung: number;
-      totalPartSelisih: number;
-      totalPartLebih: number;
-      totalPartKurang: number;
-      totalSesiDitolak: number;
-    };
-    rows: WarehouseStockOpnameRow[];
-  };
 }
 
 export function calculateWarehouseReport(
@@ -936,46 +900,32 @@ export function calculateWarehouseReport(
   store: {
     parts: Part[];
     stockMovements: StockMovement[];
-    stockOpnames?: StockOpnameSession[];
   }
 ): WarehouseReportData {
-  const { parts, stockMovements, stockOpnames = [] } = store;
+  const { parts, stockMovements } = store;
   const periodLabel = getPeriodDisplayLabel(period);
 
   // Filter movements in period
   const periodMovements = stockMovements.filter((m) => isDateInPeriod(m.date, period));
 
-  // Filter stock opnames in period
-  const periodOpnames = stockOpnames.filter((so) =>
-    isDateInPeriod(so.startedAt || so.createdAt, period)
-  );
-
   // Compute stock condition per part from the movement ledger
   let partAmanCount = 0;
   let partKritisCount = 0;
-  let partHoCount = 0;
   let totalStokTersedia = 0;
 
   const partConditions: WarehousePartConditionRow[] = parts.map((p) => {
     const code = p.kode || p.code || 'PRT-001';
-    const isHo = p.jenis === 'ho' || p.partType === 'HO';
-    const minStock = isHo ? '-' : p.stokMin ?? p.minStock ?? 1;
+    const minStock = p.stokMin ?? p.minStock ?? 1;
     const currentStock = computeStock(code, stockMovements);
     totalStokTersedia += currentStock;
 
-    let status: 'Aman' | 'Kritis' | 'HO' = 'Aman';
-    if (isHo) {
-      status = 'HO';
-      partHoCount++;
+    const minNum = Number(minStock) || 0;
+    const isCritical = currentStock <= minNum;
+    const status: 'Aman' | 'Kritis' = isCritical ? 'Kritis' : 'Aman';
+    if (isCritical) {
+      partKritisCount++;
     } else {
-      const minNum = Number(minStock) || 0;
-      if (currentStock < minNum) {
-        status = 'Kritis';
-        partKritisCount++;
-      } else {
-        status = 'Aman';
-        partAmanCount++;
-      }
+      partAmanCount++;
     }
 
     return {
@@ -986,7 +936,6 @@ export function calculateWarehouseReport(
       hargaBeli: p.hargaBeli ?? p.buyPrice ?? 0,
       hargaJual: p.hargaJual ?? p.sellPrice ?? 0,
       stokMinimum: minStock,
-      jenis: isHo ? 'ho' : 'reguler',
       status,
       tanggalDibuat: p.createdAt || '-',
     };
@@ -1084,65 +1033,13 @@ export function calculateWarehouseReport(
     }
   }
 
-  // Stock Opname Calculations
-  let totalSesiDisetujui = 0;
-  let totalSesiMenunggu = 0;
-  let totalSesiDitolak = 0;
-  let totalPartDihitung = 0;
-  let totalPartSelisih = 0;
-  let totalPartLebih = 0;
-  let totalPartKurang = 0;
-
-  const stockOpnameRows: WarehouseStockOpnameRow[] = periodOpnames.map((so) => {
-    if (so.status === 'disetujui') totalSesiDisetujui++;
-    if (so.status === 'menunggu_persetujuan') totalSesiMenunggu++;
-    if (so.status === 'ditolak') totalSesiDitolak++;
-
-    let sesiSesuai = 0;
-    let sesiLebih = 0;
-    let sesiKurang = 0;
-
-    for (const line of so.lines) {
-      if (line.physicalQty !== null) {
-        totalPartDihitung++;
-        const v = line.varianceQty ?? 0;
-        if (v === 0) {
-          sesiSesuai++;
-        } else if (v > 0) {
-          sesiLebih++;
-          totalPartSelisih++;
-          totalPartLebih++;
-        } else {
-          sesiKurang++;
-          totalPartSelisih++;
-          totalPartKurang++;
-        }
-      }
-    }
-
-    return {
-      kodeOpname: so.code,
-      tanggalOpname: so.startedAt || so.createdAt,
-      petugas: so.createdByName,
-      jumlahPart: so.lines.length,
-      partSesuai: sesiSesuai,
-      partLebih: sesiLebih,
-      partKurang: sesiKurang,
-      status: so.status,
-      disetujuiOleh: so.approvedByName || '-',
-      tanggalPersetujuan: so.approvedAt || '-',
-      sessionRef: so,
-    };
-  });
-
   return {
     period,
     periodLabel,
     kpis: {
-      totalJenisPart: parts.length,
+      totalItemPart: parts.length,
       partAmanCount,
       partKritisCount,
-      partHoCount,
       totalStokTersedia,
       totalBarangMasuk,
       totalBarangKeluar,
@@ -1151,7 +1048,6 @@ export function calculateWarehouseReport(
       kondisiStokDoughnut: {
         aman: partAmanCount,
         kritis: partKritisCount,
-        ho: partHoCount,
         total: parts.length,
       },
       komposisiMutasiDoughnut: {
@@ -1171,19 +1067,6 @@ export function calculateWarehouseReport(
     tables: {
       partConditions,
       movements: movementRows,
-    },
-    stockOpname: {
-      kpis: {
-        totalSesiOpname: periodOpnames.length,
-        totalSesiDisetujui,
-        totalSesiMenunggu,
-        totalPartDihitung,
-        totalPartSelisih,
-        totalPartLebih,
-        totalPartKurang,
-        totalSesiDitolak,
-      },
-      rows: stockOpnameRows,
     },
   };
 }

@@ -83,34 +83,6 @@ export interface PrintNotaPenjualanData {
   change?: number;
 }
 
-export interface PrintStokOpnameLine {
-  kodePart: string;
-  namaPart: string;
-  satuan: string;
-  jenis: string;
-  stokSistem: number;
-  stokFisik: number;
-  selisih: number;
-  alasanSelisih: string;
-  tindakanKoreksi: string;
-}
-
-export interface PrintStokOpnameData {
-  kodeOpname: string;
-  tanggalWaktu: string;
-  cakupan: string;
-  namaPetugas: string;
-  namaMasterGudang: string;
-  tanggalPersetujuan: string;
-  totalPartDihitung: number;
-  totalPartSesuai: number;
-  totalPartLebih: number;
-  totalPartKurang: number;
-  jumlahBarisDikoreksi: number;
-  lines: PrintStokOpnameLine[];
-  waktuCetak: string;
-}
-
 function escapeHtml(raw: string): string {
   return raw
     .replace(/&/g, '&amp;')
@@ -163,9 +135,8 @@ export function printDocument(kind: 'nota_dp', data: PrintNotaDpData): void;
 export function printDocument(kind: 'nota_ho', data: PrintNotaHoData): void;
 export function printDocument(kind: 'batal_ho', data: PrintBatalHoData): void;
 export function printDocument(kind: 'nota_penjualan', data: PrintNotaPenjualanData): void;
-export function printDocument(kind: 'stok_opname', data: PrintStokOpnameData): void;
 export function printDocument(
-  kind: 'batal' | 'nota' | 'nota_dp' | 'nota_ho' | 'batal_ho' | 'nota_penjualan' | 'stok_opname',
+  kind: 'batal' | 'nota' | 'nota_dp' | 'nota_ho' | 'batal_ho' | 'nota_penjualan',
   data:
     | PrintBatalData
     | PrintNotaData
@@ -173,7 +144,6 @@ export function printDocument(
     | PrintNotaHoData
     | PrintBatalHoData
     | PrintNotaPenjualanData
-    | PrintStokOpnameData
 ): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
 
@@ -599,151 +569,6 @@ export function printDocument(
           <div style="margin-top: 2px;">Barang yang sudah dibeli tidak dapat ditukar atau dikembalikan.</div>
           <div style="margin-top: 6px; font-size: 10px; color: #9CA3AF;">Data contoh, bukan dokumen resmi.</div>
         </footer>
-      </div>
-    `;
-  }
-
-  if (kind === 'stok_opname') {
-    const d = data as PrintStokOpnameData;
-    root.setAttribute('data-print-kind', 'stok_opname');
-
-    const tableRowsHtml = d.lines
-      .map(
-        (l, idx) => `
-        <tr style="border-bottom: 1px solid #E5E7EB; background: ${idx % 2 === 0 ? '#FFFFFF' : '#F9FAFB'};">
-          <td style="padding: 6px 4px; font-family: 'IBM Plex Mono', monospace; font-weight: 600;">${escapeHtml(l.kodePart)}</td>
-          <td style="padding: 6px 4px;">${escapeHtml(l.namaPart)}</td>
-          <td style="padding: 6px 4px; text-align: center;">${escapeHtml(l.satuan)}</td>
-          <td style="padding: 6px 4px; text-align: center; font-size: 10px; font-weight: 600;">${escapeHtml(l.jenis)}</td>
-          <td style="padding: 6px 4px; text-align: right; font-variant-numeric: tabular-nums;">${l.stokSistem}</td>
-          <td style="padding: 6px 4px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;">${l.stokFisik}</td>
-          <td style="padding: 6px 4px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: ${
-            l.selisih > 0 ? '#1D6FC4' : l.selisih < 0 ? '#DC2626' : '#166534'
-          };">${l.selisih > 0 ? `+${l.selisih}` : l.selisih}</td>
-          <td style="padding: 6px 4px; color: ${l.selisih !== 0 ? '#1E2230' : '#6B7280'};">${escapeHtml(l.alasanSelisih)}</td>
-          <td style="padding: 6px 4px; font-size: 10px; font-weight: 500;">${escapeHtml(l.tindakanKoreksi)}</td>
-        </tr>
-      `
-      )
-      .join('');
-
-    root.innerHTML = `
-      <style>
-        @media print {
-          @page {
-            size: A4 landscape !important;
-            margin: 10mm !important;
-          }
-          body {
-            background: #FFFFFF !important;
-            color: #000000 !important;
-            font-family: 'IBM Plex Sans', sans-serif !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          table {
-            page-break-inside: auto;
-            width: 100% !important;
-            border-collapse: collapse;
-          }
-          tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-          thead {
-            display: table-header-group;
-          }
-          tfoot {
-            display: table-footer-group;
-          }
-        }
-      </style>
-      <div style="font-family: 'IBM Plex Sans', sans-serif; color: #000000; background: #FFFFFF; width: 100%; box-sizing: border-box; padding: 4px 0;">
-        <!-- HEADER -->
-        <div style="border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start;">
-          <div>
-            <h1 style="font-size: 20px; font-weight: 700; margin: 0 0 2px 0; text-transform: uppercase; letter-spacing: 0.5px;">MyBengkel &bull; Laporan Stok Opname</h1>
-            <div style="font-size: 13px; color: #374151;">Dokumen Resmi Hasil Audit dan Rekonsiliasi Persediaan Gudang</div>
-          </div>
-          <div style="text-align: right; font-size: 12px;">
-            <div style="font-size: 16px; font-weight: 700; font-family: 'IBM Plex Mono', monospace;">${escapeHtml(d.kodeOpname)}</div>
-            <div style="color: #4B5563; margin-top: 2px;">Cakupan: <strong>${escapeHtml(d.cakupan)}</strong></div>
-            <div style="color: #166534; font-weight: 700;">STATUS: DISETUJUI RESMI</div>
-          </div>
-        </div>
-
-        <!-- METADATA GRID -->
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; font-size: 12px; background: #F9FAFB; padding: 8px 12px; border: 1px solid #E5E7EB; border-radius: 6px;">
-          <div>
-            <div style="color: #6B7280; font-size: 10px; text-transform: uppercase;">Waktu Opname</div>
-            <div style="font-weight: 600; margin-top: 2px;">${escapeHtml(d.tanggalWaktu)}</div>
-          </div>
-          <div>
-            <div style="color: #6B7280; font-size: 10px; text-transform: uppercase;">Petugas Penghitung</div>
-            <div style="font-weight: 600; margin-top: 2px;">${escapeHtml(d.namaPetugas)}</div>
-          </div>
-          <div>
-            <div style="color: #6B7280; font-size: 10px; text-transform: uppercase;">Master Gudang Penyetuju</div>
-            <div style="font-weight: 600; margin-top: 2px;">${escapeHtml(d.namaMasterGudang)}</div>
-          </div>
-          <div>
-            <div style="color: #6B7280; font-size: 10px; text-transform: uppercase;">Tanggal Persetujuan</div>
-            <div style="font-weight: 600; margin-top: 2px;">${escapeHtml(d.tanggalPersetujuan)}</div>
-          </div>
-        </div>
-
-        <!-- SUMMARY STATS -->
-        <div style="display: flex; gap: 20px; margin-bottom: 14px; font-size: 12px; border-bottom: 1px solid #E5E7EB; padding-bottom: 8px;">
-          <div>Total Part Dihitung: <strong style="font-size: 13px;">${d.totalPartDihitung}</strong></div>
-          <div>Sesuai: <strong style="color: #166534; font-size: 13px;">${d.totalPartSesuai}</strong></div>
-          <div>Lebih (Surplus): <strong style="color: #1D6FC4; font-size: 13px;">${d.totalPartLebih}</strong></div>
-          <div>Kurang (Defisit): <strong style="color: #DC2626; font-size: 13px;">${d.totalPartKurang}</strong></div>
-          <div>Baris Dikoreksi ke Buku Stok: <strong style="font-size: 13px;">${d.jumlahBarisDikoreksi}</strong></div>
-        </div>
-
-        <!-- DETAILED TABLE -->
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 24px;">
-          <thead>
-            <tr style="background: #F3F4F6; border-top: 1px solid #9CA3AF; border-bottom: 1px solid #9CA3AF; text-align: left;">
-              <th style="padding: 6px 4px; width: 85px;">Kode Part</th>
-              <th style="padding: 6px 4px;">Nama Part</th>
-              <th style="padding: 6px 4px; width: 55px; text-align: center;">Satuan</th>
-              <th style="padding: 6px 4px; width: 60px; text-align: center;">Jenis</th>
-              <th style="padding: 6px 4px; width: 80px; text-align: right;">Stok Sistem</th>
-              <th style="padding: 6px 4px; width: 80px; text-align: right;">Stok Fisik</th>
-              <th style="padding: 6px 4px; width: 70px; text-align: right;">Selisih</th>
-              <th style="padding: 6px 4px; width: 220px;">Alasan Selisih</th>
-              <th style="padding: 6px 4px; width: 160px;">Tindakan Koreksi</th>
-            </tr>
-          </thead>
-          <tbody>${tableRowsHtml}</tbody>
-        </table>
-
-        <!-- FOOTER SIGNATURES -->
-        <div style="page-break-inside: avoid; margin-top: 24px; border-top: 1px solid #000000; padding-top: 14px;">
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; font-size: 12px;">
-            <div>
-              <div style="color: #6B7280; margin-bottom: 45px;">Petugas Penghitung</div>
-              <div style="font-weight: 600; text-decoration: underline;">${escapeHtml(d.namaPetugas)}</div>
-              <div style="font-size: 10px; color: #6B7280;">Admin Gudang</div>
-            </div>
-            <div>
-              <div style="color: #6B7280; margin-bottom: 45px;">Pemeriksa Fisik</div>
-              <div style="font-weight: 600; text-decoration: underline;">${escapeHtml(d.namaMasterGudang)}</div>
-              <div style="font-size: 10px; color: #6B7280;">Master Gudang</div>
-            </div>
-            <div>
-              <div style="color: #6B7280; margin-bottom: 45px;">Penyetuju Koreksi Ledger</div>
-              <div style="font-weight: 600; text-decoration: underline;">${escapeHtml(d.namaMasterGudang)}</div>
-              <div style="font-size: 10px; color: #6B7280;">Otoritas Master Gudang</div>
-            </div>
-          </div>
-
-          <div style="margin-top: 18px; font-size: 10px; color: #6B7280; display: flex; justify-content: space-between;">
-            <span>Dokumen hasil stok opname MyBengkel.</span>
-            <span>Waktu cetak: ${escapeHtml(d.waktuCetak)}</span>
-          </div>
-        </div>
       </div>
     `;
   }
