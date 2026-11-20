@@ -230,7 +230,9 @@ export const HelpDeskCenter: React.FC = () => {
                 : null;
 
             const rawPin5 =
-              typeof item.raw_pin_5 === 'string' && item.raw_pin_5 !== ''
+              roleTyped === 'customer'
+                ? null
+                : typeof item.raw_pin_5 === 'string' && item.raw_pin_5 !== ''
                 ? item.raw_pin_5
                 : typeof item.pin_5 === 'string' && item.pin_5 !== ''
                 ? item.pin_5
@@ -473,8 +475,13 @@ export const HelpDeskCenter: React.FC = () => {
       setAccFormError('Jika diisi, password minimal 6 karakter.');
       return;
     }
-    if (cleanPin12 && (cleanPin12.length < 5 || cleanPin12.length > 12)) {
-      setAccFormError('PIN Keamanan harus antara 5 hingga 12 digit angka (disarankan 12 digit).');
+    if (accFormRole === 'customer') {
+      if (cleanPin12 && (cleanPin12.length < 1 || cleanPin12.length > 4)) {
+        setAccFormError('PIN Konsumen maksimal 4 angka.');
+        return;
+      }
+    } else if (cleanPin12 && (cleanPin12.length < 5 || cleanPin12.length > 12)) {
+      setAccFormError('PIN Keamanan staf harus antara 5 hingga 12 digit angka (disarankan 12 digit).');
       return;
     }
 
@@ -1710,7 +1717,7 @@ export const HelpDeskCenter: React.FC = () => {
                         <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Nama</th>
                         <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Email</th>
                         <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">Password (DB)</th>
-                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 12 Digit</th>
+                        <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN (12 / 4 Digit)</th>
                         <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider">PIN 5 Digit</th>
                         <th className="py-3 px-3.5 text-[11px] font-bold uppercase tracking-wider text-right">Aksi</th>
                       </tr>
@@ -1720,8 +1727,10 @@ export const HelpDeskCenter: React.FC = () => {
                         const rowKey = acc.userId;
                         const isPwdVisible = Boolean(revealedPasswords[rowKey]);
                         const isPinVisible = Boolean(revealedPins[rowKey]);
-                        const derivedPin5 =
-                          acc.rawPin5 || (acc.rawPin ? deriveFiveDigitPin(acc.rawPin) : null);
+                        const isCustomer = acc.role === 'customer';
+                        const derivedPin5 = isCustomer
+                          ? null
+                          : acc.rawPin5 || (acc.rawPin ? deriveFiveDigitPin(acc.rawPin) : null);
 
                         const roleBadgeCls =
                           acc.role === 'master_admin' || acc.role === 'master_gudang'
@@ -1823,12 +1832,28 @@ export const HelpDeskCenter: React.FC = () => {
                               {acc.rawPin ? (
                                 <div className="inline-flex items-center gap-1.5">
                                   <span className="font-mono text-xs text-[#1E2230]">
-                                    {isPinVisible ? acc.rawPin : '••••••••••••'}
+                                    {isPinVisible ? acc.rawPin : isCustomer ? '••••' : '••••••••••••'}
                                   </span>
                                   <button
                                     type="button"
-                                    aria-label={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
-                                    title={isPinVisible ? 'Sembunyikan PIN 12 digit' : 'Lihat PIN 12 digit'}
+                                    aria-label={
+                                      isPinVisible
+                                        ? isCustomer
+                                          ? 'Sembunyikan PIN konsumen'
+                                          : 'Sembunyikan PIN 12 digit'
+                                        : isCustomer
+                                        ? 'Lihat PIN konsumen'
+                                        : 'Lihat PIN 12 digit'
+                                    }
+                                    title={
+                                      isPinVisible
+                                        ? isCustomer
+                                          ? 'Sembunyikan PIN konsumen'
+                                          : 'Sembunyikan PIN 12 digit'
+                                        : isCustomer
+                                        ? 'Lihat PIN konsumen'
+                                        : 'Lihat PIN 12 digit'
+                                    }
                                     onClick={() =>
                                       setRevealedPins((prev) => ({
                                         ...prev,
@@ -1853,13 +1878,13 @@ export const HelpDeskCenter: React.FC = () => {
                                   </button>
                                   <button
                                     type="button"
-                                    aria-label="Salin PIN 12 digit"
-                                    title="Salin PIN 12 digit"
+                                    aria-label={isCustomer ? 'Salin PIN konsumen' : 'Salin PIN 12 digit'}
+                                    title={isCustomer ? 'Salin PIN konsumen' : 'Salin PIN 12 digit'}
                                     onClick={() =>
                                       void handleCopySecret(
                                         `pin12-${rowKey}`,
                                         acc.rawPin,
-                                        'PIN 12 digit'
+                                        isCustomer ? 'PIN konsumen' : 'PIN 12 digit'
                                       )
                                     }
                                     className="p-1 rounded-[6px] border border-[#E2E8F0] text-[#475569] hover:text-[#1E2230] hover:bg-[#F6F7FA] text-[10px] font-semibold"
@@ -1874,7 +1899,9 @@ export const HelpDeskCenter: React.FC = () => {
                               )}
                             </td>
                             <td className="py-3 px-3.5 whitespace-nowrap">
-                              {derivedPin5 ? (
+                              {isCustomer ? (
+                                <span className="text-[11px] text-[#646B7C]">-</span>
+                              ) : derivedPin5 ? (
                                 <div className="inline-flex items-center gap-1.5">
                                   <span className="font-mono font-bold text-xs px-2 py-0.5 rounded-[6px] bg-[#FEF3C7] text-[#92400E]">
                                     {derivedPin5}
@@ -3200,7 +3227,15 @@ export const HelpDeskCenter: React.FC = () => {
               <select
                 id="acc-form-role"
                 value={accFormRole}
-                onChange={(e) => setAccFormRole(e.target.value as HelpdeskRoleType)}
+                onChange={(e) => {
+                  const nextRole = e.target.value as HelpdeskRoleType;
+                  setAccFormRole(nextRole);
+                  if (nextRole === 'customer') {
+                    setAccFormPin12((prev) =>
+                      prev === '123456789012' ? '' : prev.replace(/\D/g, '').slice(0, 4)
+                    );
+                  }
+                }}
                 className="admin-input text-xs"
               >
                 <option value="admin">Admin (AD)</option>
@@ -3283,34 +3318,52 @@ export const HelpDeskCenter: React.FC = () => {
             </div>
           </FormField>
 
-          <FormField id="acc-form-pin12" label="PIN Keamanan (12 Digit Angka)">
+          <FormField
+            id="acc-form-pin12"
+            label={
+              accFormRole === 'customer'
+                ? 'PIN Keamanan Konsumen (Maksimal 4 Angka)'
+                : 'PIN Keamanan (12 Digit Angka)'
+            }
+            helperText={
+              accFormRole === 'customer'
+                ? 'Masukkan PIN maksimal 4 angka.'
+                : undefined
+            }
+          >
             <input
               id="acc-form-pin12"
               type="text"
               inputMode="numeric"
-              maxLength={12}
+              maxLength={accFormRole === 'customer' ? 4 : 12}
               value={accFormPin12}
               onChange={(e) =>
-                setAccFormPin12(e.target.value.replace(/\D/g, '').slice(0, 12))
+                setAccFormPin12(
+                  e.target.value
+                    .replace(/\D/g, '')
+                    .slice(0, accFormRole === 'customer' ? 4 : 12)
+                )
               }
-              placeholder="123456789012"
+              placeholder={accFormRole === 'customer' ? 'Contoh: 1234' : '123456789012'}
               className="admin-input text-xs font-mono tracking-wider"
             />
           </FormField>
 
-          <div className="p-3 rounded-[10px] bg-[#FEF3C7]/60 border border-[#FDE68A] flex items-center justify-between gap-3">
-            <div>
-              <span className="text-[11px] font-semibold text-[#92400E] block">
-                PIN Operasional 5 Digit (Otomatis)
-              </span>
-              <span className="text-[11px] text-[#78350F]">
-                Kebalikan 5 digit terakhir dari PIN 12 digit
+          {accFormRole !== 'customer' && (
+            <div className="p-3 rounded-[10px] bg-[#FEF3C7]/60 border border-[#FDE68A] flex items-center justify-between gap-3">
+              <div>
+                <span className="text-[11px] font-semibold text-[#92400E] block">
+                  PIN Operasional 5 Digit (Otomatis)
+                </span>
+                <span className="text-[11px] text-[#78350F]">
+                  Kebalikan 5 digit terakhir dari PIN 12 digit
+                </span>
+              </div>
+              <span className="font-mono font-bold text-base px-2.5 py-1 rounded-[8px] bg-white border border-[#F59E0B]/40 text-[#92400E]">
+                {deriveFiveDigitPin(accFormPin12) || '-'}
               </span>
             </div>
-            <span className="font-mono font-bold text-base px-2.5 py-1 rounded-[8px] bg-white border border-[#F59E0B]/40 text-[#92400E]">
-              {deriveFiveDigitPin(accFormPin12) || '-'}
-            </span>
-          </div>
+          )}
 
           <label className="flex items-center gap-2.5 p-3 rounded-[10px] bg-[#F6F7FA] border border-[#EEF0F4] cursor-pointer">
             <input

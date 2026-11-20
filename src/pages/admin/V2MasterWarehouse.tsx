@@ -20,7 +20,7 @@ import { StockOpnameWorkspace } from '../../components/admin/StockOpnameWorkspac
 import { useActionIsland } from '../../components/admin/island/IslandSystem';
 
 type WorkspaceTab = 'input' | 'opname';
-type PartListFilter = 'all' | 'low' | 'reguler' | 'ho';
+type PartListFilter = 'all' | 'low';
 
 const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
 
@@ -103,8 +103,6 @@ const V2MasterWarehouse: React.FC = () => {
     return partRows
       .filter((r) => {
         if (listFilter === 'low' && !r.critical) return false;
-        if (listFilter === 'reguler' && r.part.jenis !== 'reguler') return false;
-        if (listFilter === 'ho' && r.part.jenis !== 'ho') return false;
         if (!q) return true;
         return (
           r.part.kode.toLowerCase().includes(q) ||
@@ -625,12 +623,10 @@ const V2MasterWarehouse: React.FC = () => {
               <FilterTabs
                 ariaLabel="Filter daftar katalog part"
                 value={listFilter}
-                onChange={(v) => setListFilter((v as PartListFilter) || 'all')}
+                onChange={(v) => setListFilter((v === 'low' ? 'low' : 'all') as PartListFilter)}
                 tabs={[
                   { value: 'all', label: 'Semua Part', count: totalCount },
-                  { value: 'low', label: 'Stok Kritis', count: lowCount },
-                  { value: 'reguler', label: 'Part Reguler', count: regulerCount },
-                  { value: 'ho', label: 'Part HO', count: hoCount },
+                  { value: 'low', label: 'Stok Menipis', count: lowCount },
                 ]}
               />
             </div>

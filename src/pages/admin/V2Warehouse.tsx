@@ -17,7 +17,7 @@ import { FormField } from '../../components/admin/FormField';
 import { ActionButton, PencilIcon, PlusIcon, TrashIcon } from '../../components/admin/ActionButton';
 import { useActionIsland } from '../../components/admin/island/IslandSystem';
 
-type StockFilterKey = 'all' | 'low' | 'reguler' | 'ho';
+type StockFilterKey = 'all' | 'low';
 
 const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
 
@@ -71,7 +71,7 @@ const V2Warehouse: React.FC = () => {
   }, [searchParams]);
 
   const handleFilterChange = (val: string) => {
-    const next = (val === 'low' || val === 'reguler' || val === 'ho' ? val : 'all') as StockFilterKey;
+    const next = (val === 'low' ? 'low' : 'all') as StockFilterKey;
     setFilterTab(next);
     if (next === 'low') {
       setSearchParams({ filter: 'low' }, { replace: true });
@@ -104,8 +104,6 @@ const V2Warehouse: React.FC = () => {
     return stockRows
       .filter((row) => {
         if (filterTab === 'low' && !row.critical) return false;
-        if (filterTab === 'reguler' && row.part.jenis !== 'reguler') return false;
-        if (filterTab === 'ho' && row.part.jenis !== 'ho') return false;
         if (!q) return true;
         return (
           row.part.kode.toLowerCase().includes(q) ||
@@ -427,23 +425,16 @@ const V2Warehouse: React.FC = () => {
           </div>
         }
       >
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-4">
           <FilterTabs
             ariaLabel="Filter status stok part"
             value={filterTab}
             onChange={handleFilterChange}
             tabs={[
               { value: 'all', label: 'Semua Part', count: totalCount },
-              { value: 'low', label: 'Stok Kritis', count: lowCount },
-              { value: 'reguler', label: 'Part Reguler', count: regulerCount },
-              { value: 'ho', label: 'Part HO', count: hoCount },
+              { value: 'low', label: 'Stok Menipis', count: lowCount },
             ]}
           />
-          {!canManageWarehouse && (
-            <span className="inline-flex items-center px-3 py-1.5 rounded-[10px] bg-[#F6F7FA] border border-[#E6E9F0] text-[12px] text-[#646B7C]">
-              Mode lihat saja untuk Admin bengkel
-            </span>
-          )}
         </div>
 
         <DataTable

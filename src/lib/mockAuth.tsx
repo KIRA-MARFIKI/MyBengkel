@@ -273,13 +273,16 @@ export const authenticateCredentials = (
     (acc) => acc.email.trim().toLowerCase() === cleanEmail
   );
   if (managedMatch) {
+    const isCustomer = managedMatch.role === 'customer';
     const pwOk = managedMatch.password === password;
-    const expectedPin5 = managedMatch.pin12 ? deriveFiveDigitPin(managedMatch.pin12) : '';
-    const pinOk =
-      cleanPin === managedMatch.pin12 ||
-      (managedMatch.pin5 && cleanPin === managedMatch.pin5) ||
-      (expectedPin5 && cleanPin === expectedPin5) ||
-      (managedMatch.role !== 'customer' && cleanPin === DUMMY_ADMIN_PIN);
+    const expectedPin5 =
+      !isCustomer && managedMatch.pin12 ? deriveFiveDigitPin(managedMatch.pin12) : '';
+    const pinOk = isCustomer
+      ? cleanPin.length <= 4 && cleanPin === managedMatch.pin12
+      : cleanPin === managedMatch.pin12 ||
+        (managedMatch.pin5 && cleanPin === managedMatch.pin5) ||
+        (expectedPin5 && cleanPin === expectedPin5) ||
+        cleanPin === DUMMY_ADMIN_PIN;
 
     if (!pwOk || !pinOk) {
       return {
@@ -312,7 +315,10 @@ export const authenticateCredentials = (
         name: managedMatch.nama,
         roleCode: managedMatch.roleCode,
         pin: managedMatch.pin12,
-        pin5: managedMatch.pin5 || deriveFiveDigitPin(managedMatch.pin12),
+        pin5:
+          normalizedRole === 'customer'
+            ? undefined
+            : managedMatch.pin5 || deriveFiveDigitPin(managedMatch.pin12),
         phone: managedMatch.phone || customerExtra?.phone,
       },
     };
@@ -389,7 +395,7 @@ export const authenticateCredentials = (
     };
   }
 
-  // 4. Check Registered Customer (accepts full PIN or derived 5-digit reversed PIN)
+  // 4. Check Registered Customer (PIN maksimal 4 digit)
   const customers = getRegisteredCustomersList();
   const matchedCustomer = customers.find(
     (c) => c.email.trim().toLowerCase() === cleanEmail
@@ -397,14 +403,8 @@ export const authenticateCredentials = (
 
   if (matchedCustomer) {
     const passwordMatches = !matchedCustomer.password || matchedCustomer.password === password;
-    const expectedCustPin5 = matchedCustomer.pin
-      ? deriveFiveDigitPin(matchedCustomer.pin)
-      : '';
     const pinMatches =
-      !matchedCustomer.pin ||
-      matchedCustomer.pin === cleanPin ||
-      matchedCustomer.pin5 === cleanPin ||
-      (expectedCustPin5 !== '' && expectedCustPin5 === cleanPin);
+      !matchedCustomer.pin || (cleanPin.length <= 4 && matchedCustomer.pin === cleanPin);
     if (!passwordMatches || !pinMatches) {
       return {
         ok: false,
@@ -514,11 +514,14 @@ export const authenticateCredentialsAsync = async (
             : 'customer';
 
         const resolvedPin12 = res.pin_12 ? String(res.pin_12) : cleanPin;
-        const resolvedPin5 = res.raw_pin_5
-          ? String(res.raw_pin_5)
-          : res.pin_5
-          ? String(res.pin_5)
-          : deriveFiveDigitPin(resolvedPin12);
+        const resolvedPin5 =
+          normalizedRole === 'customer'
+            ? ''
+            : res.raw_pin_5
+            ? String(res.raw_pin_5)
+            : res.pin_5
+            ? String(res.pin_5)
+            : deriveFiveDigitPin(resolvedPin12);
 
         const managed = upsertManagedAccount({
           userId: res.user_id ? String(res.user_id) : undefined,
@@ -2071,8 +2074,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<{ ok: boolean; error?: string }> => {
     const cleanEmail = profile.email.trim().toLowerCase();
     const cleanName = (profile.name || cleanEmail.split('@')[0]).trim();
-    const cleanPin = (profile.pin || '').trim().replace(/\D/g, '');
-    const computedPin5 = cleanPin ? deriveFiveDigitPin(cleanPin) : '';
+    const rawPinDigits = (profile.pin || '').trim().replace(/\D/g, '');
+    if (rawPinDigits.length > 4) {
+      return { ok: false, error: 'Masukkan PIN maksimal 4 angka.' };
+    }
+    const cleanPin = rawPinDigits;
 
     let dbUserId: string | undefined;
     let dbRoleCode: string | undefined;
@@ -2131,7 +2137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       nama: cleanName,
       password: profile.password || '',
       pin12: cleanPin,
-      pin5: computedPin5 || cleanPin,
+      pin5: '',
       phone: profile.phone,
     });
 
@@ -2141,7 +2147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: cleanName,
       roleCode: managed.roleCode,
       pin: cleanPin,
-      pin5: managed.pin5,
+      pin5: undefined,
     };
 
     if (typeof localStorage !== 'undefined') {

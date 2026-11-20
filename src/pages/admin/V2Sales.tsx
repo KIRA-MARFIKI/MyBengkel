@@ -404,33 +404,6 @@ export const V2Sales: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* ----------------------------------------------------------- */}
-      {/* Top Prototype Information Banner & Navigation Action       */}
-      {/* ----------------------------------------------------------- */}
-      <div className="rounded-[16px] bg-[#E4F2FE] border border-[#BFDBFE] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-[#1A64B0] text-white flex items-center justify-center shrink-0 mt-0.5">
-            <BanknoteIcon size={18} />
-          </div>
-          <div className="text-[13px] text-[#1E3A8A] leading-relaxed">
-            <div className="font-semibold text-[#1E2230] text-[14px] mb-0.5">
-              Sistem Kasir Penjualan Sparepart (POS)
-            </div>
-            <div>
-              Area kasir ini terhubung langsung ke Master Gudang dan mutasi stok secara real-time.
-            </div>
-          </div>
-        </div>
-
-        <Link
-          to="/admin/laporan/penjualan"
-          className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[10px] bg-white border border-[#D9DDE6] text-[#1E2230] hover:bg-[#F3F4F6] text-[13px] font-semibold transition-colors shadow-sm"
-        >
-          <span>Laporan Penjualan</span>
-          <span aria-hidden="true">&rarr;</span>
-        </Link>
-      </div>
-
       {/* Stock warning notification banner */}
       {stockAlert && (
         <div

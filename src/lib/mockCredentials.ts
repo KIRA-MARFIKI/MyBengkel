@@ -294,15 +294,20 @@ export function upsertManagedAccount(
       ? defaultSlotCode
       : getNextRoleCodeForAccounts(input.role, current));
 
-  const nextPin12 = (
-    input.pin12 !== undefined ? input.pin12 : existing?.pin12 || '123456789012'
+  const rawPinInput = (
+    input.pin12 !== undefined ? input.pin12 : existing?.pin12 || (input.role === 'customer' ? '' : '123456789012')
   ).replace(/\D/g, '');
-  const computedPin5 = nextPin12
-    ? nextPin12.length >= 5
-      ? deriveFiveDigitPin(nextPin12)
+  const nextPin12 = input.role === 'customer' ? rawPinInput.slice(0, 4) : rawPinInput;
+  const computedPin5 =
+    input.role === 'customer'
+      ? ''
       : nextPin12
-    : '';
-  const nextPin5 = computedPin5 || input.pin5 || existing?.pin5 || '21098';
+      ? nextPin12.length >= 5
+        ? deriveFiveDigitPin(nextPin12)
+        : nextPin12
+      : '';
+  const nextPin5 =
+    input.role === 'customer' ? '' : computedPin5 || input.pin5 || existing?.pin5 || '21098';
   const resolvedPassword =
     input.password && input.password.trim() !== '' && input.password !== '-'
       ? input.password

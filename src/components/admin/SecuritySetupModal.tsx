@@ -1009,15 +1009,6 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                 />
               </div>
 
-              <div className="p-3 rounded-[6px] bg-[#F7F8FA] border border-[#EEF0F4] text-xs text-[#646B7C] space-y-1">
-                <p className="font-semibold text-[#1E2230]">Catatan Konfirmasi Email:</p>
-                <p>
-                  Sesuai standar keamanan Supabase Auth, tautan verifikasi akan dikirimkan. Langkah 3
-                  (Pembuatan PIN Baru) akan terbuka secara otomatis setelah Anda mengonfirmasi email
-                  melalui tautan yang dikirim.
-                </p>
-              </div>
-
               {emailError && (
                 <div
                   role="alert"

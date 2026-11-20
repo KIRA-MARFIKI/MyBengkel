@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth, deriveFiveDigitPin } from '../lib/mockAuth';
+import { useAuth } from '../lib/mockAuth';
 import { resetBodyScrollIfIdle } from '../components/admin/island/IslandSystem';
 import { EyeIcon, EyeOffIcon } from '../components/admin/ActionButton';
 import { gsap } from '../lib/gsap';
@@ -119,8 +119,8 @@ export const Register: React.FC = () => {
     const trimmed = val.trim();
     if (!trimmed) return 'PIN harus diisi.';
     if (!/^\d+$/.test(trimmed)) return 'PIN hanya boleh berisi angka.';
-    if (trimmed.length < 4 || trimmed.length > 12) {
-      return 'PIN harus terdiri dari 4 hingga 12 angka.';
+    if (trimmed.length < 1 || trimmed.length > 4) {
+      return 'Masukkan PIN maksimal 4 angka.';
     }
     return undefined;
   };
@@ -482,14 +482,14 @@ export const Register: React.FC = () => {
                 )}
               </div>
 
-              {/* PIN Konsumen (4 hingga 12 angka) */}
+              {/* PIN Konsumen (Maksimal 4 angka) */}
               <div id="field-pin">
                 <div className="flex items-center justify-between mb-1">
                   <label
                     htmlFor="reg-pin"
                     className="font-sans font-medium text-[15px] text-carbon block"
                   >
-                    PIN keamanan (4 hingga 12 angka)
+                    PIN keamanan (maksimal 4 angka)
                   </label>
                   <button
                     type="button"
@@ -502,17 +502,17 @@ export const Register: React.FC = () => {
                   </button>
                 </div>
                 <span className="font-sans text-xs text-muted block mb-2">
-                  Masukkan 4 hingga 12 angka (disarankan 12 angka agar tersedia PIN cepat 5 digit otomatis dari belakang).
+                  Masukkan PIN maksimal 4 angka.
                 </span>
                 <input
                   id="reg-pin"
                   type={showPin ? 'text' : 'password'}
                   inputMode="numeric"
-                  maxLength={12}
-                  placeholder="Contoh: 123456789012"
+                  maxLength={4}
+                  placeholder="Contoh: 1234"
                   value={pin}
                   onChange={(e) => {
-                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 12);
+                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 4);
                     setPin(digitsOnly);
                     if (errors.pin) {
                       setErrors((prev) => ({ ...prev, pin: undefined }));
@@ -521,14 +521,8 @@ export const Register: React.FC = () => {
                   onBlur={() => handleBlur('pin')}
                   className="w-full font-mono tracking-widest bg-transparent border border-steel rounded-[4px] min-h-[44px] px-3 py-2 text-carbon focus-visible:outline-2 focus-visible:outline-signal focus-visible:outline-offset-2"
                 />
-                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-sans text-muted">
-                  <span>
-                    PIN Cepat 5 Digit (Otomatis):{' '}
-                    <strong className="font-mono text-carbon">
-                      {pin.length >= 5 ? deriveFiveDigitPin(pin) : '-----'}
-                    </strong>
-                  </span>
-                  <span className="font-mono tabular-nums">{pin.length}/12</span>
+                <div className="mt-1.5 flex items-center justify-end text-xs font-sans text-muted">
+                  <span className="font-mono tabular-nums">{pin.length}/4</span>
                 </div>
                 {errors.pin && (
                   <p className="text-alert font-sans text-sm mt-1.5">{errors.pin}</p>
