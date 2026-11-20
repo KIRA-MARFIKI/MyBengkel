@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 export type WarehouseRole = 'admin_gudang' | 'master_gudang';
 
 export type ManagedAccountRole =
@@ -274,10 +276,27 @@ export function upsertManagedAccount(
   const targetPrefix = getRolePrefix(input.role);
   const existingCodeMatchesRole =
     existing?.roleCode && existing.roleCode.toUpperCase().startsWith(`${targetPrefix}-`);
+  const defaultSlotCode = `${targetPrefix}-001`;
+  const hasNonBootstrapUsingDefaultSlot = current.some(
+    (a) =>
+      (a.roleCode || '').trim().toUpperCase() === defaultSlotCode &&
+      ![
+        'admin@mybengkel.com',
+        'admin@mubengkel.com',
+        'masteradmin@mybengkel.com',
+        'helpdesk@mybengkel.com',
+        'helpdesk@gmail.com',
+      ].includes(a.email.trim().toLowerCase()) &&
+      a.email.trim().toLowerCase() !== cleanEmail
+  );
 
   const nextRoleCode =
     (input.roleCode && input.roleCode.trim()) ||
-    (existingCodeMatchesRole ? existing!.roleCode : getNextRoleCodeForAccounts(input.role, current));
+    (existingCodeMatchesRole
+      ? existing!.roleCode
+      : !hasNonBootstrapUsingDefaultSlot && targetPrefix !== 'CS' && targetPrefix !== 'MK'
+      ? defaultSlotCode
+      : getNextRoleCodeForAccounts(input.role, current));
 
   const nextPin12 = (
     input.pin12 !== undefined ? input.pin12 : existing?.pin12 || '123456789012'
@@ -352,17 +371,45 @@ export function removeManagedAccount(identifier: {
 export interface VerifiedWarehouseUser {
   id: string;
   nama: string;
+  email?: string;
   role: WarehouseRole;
 }
 
-// MOCK: verify on the server in production. Never check secrets in the browser.
+export interface WarehouseGateVerifyResult {
+  ok: boolean;
+  error?: string;
+  user?: VerifiedWarehouseUser;
+}
+
+const BLOCKED_BOOTSTRAP_EMAILS = new Set([
+  'admin@mybengkel.com',
+  'admin@mubengkel.com',
+  'masteradmin@mybengkel.com',
+  'helpdesk@mybengkel.com',
+]);
+
+const BLOCKED_DEFAULT_PASSWORDS = new Set([
+  'admin123',
+  'masteradmin123',
+  'helpdesk123',
+  'master123',
+]);
+
+// Fallback local check when RPC is unavailable (no default/bootstrap backdoors allowed).
 export function verifyWarehouseCredential(
   values: Record<string, string>
 ): VerifiedWarehouseUser | null {
+  const email = (values.email || '').trim().toLowerCase();
   const id = (values.idGudang || values.idMaster || '').trim().toUpperCase();
-  const nama = (values.nama || '').trim().toLowerCase();
   const password = values.password || '';
-  const pin = (values.pin || '').trim();
+  const pin = (values.pin || '').replace(/\D/g, '').slice(0, 5);
+
+  if (!email || !id || !password || pin.length !== 5) {
+    return null;
+  }
+  if (BLOCKED_BOOTSTRAP_EMAILS.has(email) || BLOCKED_DEFAULT_PASSWORDS.has(password.trim())) {
+    return null;
+  }
 
   const accounts = getManagedAccounts();
   for (const acc of accounts) {
@@ -374,102 +421,238 @@ export function verifyWarehouseCredential(
     ) {
       continue;
     }
+    if (acc.pin12 === '123456789012') continue;
     const isMaster = acc.role === 'master_admin' || acc.role === 'master_gudang';
-    const validIds = isMaster
-      ? [acc.roleCode.toUpperCase(), 'MG-001']
-      : [acc.roleCode.toUpperCase(), 'AD-001', 'ADMG-001', 'ADM-001'];
-    const pinMatches = pin === acc.pin5 || pin === '21098' || pin === '12345';
+    const expectedCode = (acc.roleCode || (isMaster ? 'MG-001' : 'AD-001')).trim().toUpperCase();
+    const expectedPin5 = (acc.pin5 || deriveFiveDigitPin(acc.pin12 || '')).trim();
     if (
-      validIds.includes(id) &&
-      acc.nama.trim().toLowerCase() === nama &&
+      acc.email.trim().toLowerCase() === email &&
+      expectedCode === id &&
       acc.password === password &&
-      pinMatches
+      expectedPin5.length === 5 &&
+      pin === expectedPin5
     ) {
       return {
-        id: acc.roleCode,
+        id: expectedCode,
         nama: acc.nama,
+        email: acc.email,
         role: isMaster ? 'master_gudang' : 'admin_gudang',
       };
     }
   }
 
-  // Legacy Admin Gudang fallback check
-  if (
-    (id === 'ADMG-001' || id === 'AD-001') &&
-    (nama === DUMMY_ADMIN_GUDANG.nama.toLowerCase() || nama === SEED_ACCOUNTS.admin.nama.toLowerCase()) &&
-    password === DUMMY_ADMIN_GUDANG.password &&
-    (pin === DUMMY_ADMIN_GUDANG.pin || pin === '21098' || pin === '12345')
-  ) {
-    return {
-      id: 'AD-001',
-      nama: DUMMY_ADMIN_GUDANG.nama,
-      role: 'admin_gudang',
-    };
-  }
-
-  // Legacy Master Gudang fallback check
-  if (
-    id === 'MG-001' &&
-    (nama === DUMMY_MASTER.nama.toLowerCase() || nama === 'master gudang dummy') &&
-    (password === DUMMY_MASTER.password || password === 'master123') &&
-    (pin === DUMMY_MASTER.pin || pin === '21098' || pin === '12345')
-  ) {
-    return {
-      id: 'MG-001',
-      nama: DUMMY_MASTER.nama,
-      role: 'master_gudang',
-    };
-  }
-
   return null;
 }
 
-// MOCK: verify on the server in production. Never check secrets in the browser.
-// ONLY Master Gudang (MG-001+) can authorize official Stock Opname printing.
+// ONLY verified Master Gudang (MG-001+) with active new email, latest password, and 5-digit PIN
+// can authorize official Stock Opname printing.
 export function verifyMasterGudangPrintCredential(
   values: Record<string, string>
 ): VerifiedWarehouseUser | null {
+  const email = (values.email || '').trim().toLowerCase();
   const id = (values.idMaster || values.idGudang || '').trim().toUpperCase();
-  const nama = (values.nama || '').trim().toLowerCase();
   const password = values.password || '';
-  const pin = (values.pin || '').trim();
+  const pin = (values.pin || '').replace(/\D/g, '').slice(0, 5);
 
+  if (!email || !id || !password || pin.length !== 5) {
+    return null;
+  }
   if (id.startsWith('AD-') || id === 'ADMG-001' || id === 'ADM-001') {
+    return null;
+  }
+  if (BLOCKED_BOOTSTRAP_EMAILS.has(email) || BLOCKED_DEFAULT_PASSWORDS.has(password.trim())) {
     return null;
   }
 
   const accounts = getManagedAccounts();
   for (const acc of accounts) {
     if (acc.role !== 'master_admin' && acc.role !== 'master_gudang') continue;
-    const pinMatches = pin === acc.pin5 || pin === '21098' || pin === '12345';
+    if (acc.pin12 === '123456789012') continue;
+    const expectedCode = (acc.roleCode || 'MG-001').trim().toUpperCase();
+    const expectedPin5 = (acc.pin5 || deriveFiveDigitPin(acc.pin12 || '')).trim();
     if (
-      (id === acc.roleCode.toUpperCase() || id === 'MG-001') &&
-      acc.nama.trim().toLowerCase() === nama &&
+      acc.email.trim().toLowerCase() === email &&
+      expectedCode === id &&
       acc.password === password &&
-      pinMatches
+      expectedPin5.length === 5 &&
+      pin === expectedPin5
     ) {
       return {
-        id: acc.roleCode,
+        id: expectedCode,
         nama: acc.nama,
+        email: acc.email,
         role: 'master_gudang',
       };
     }
   }
 
-  if (
-    id === 'MG-001' &&
-    (nama === DUMMY_MASTER.nama.toLowerCase() || nama === 'master gudang dummy') &&
-    (password === DUMMY_MASTER.password || password === 'master123') &&
-    (pin === DUMMY_MASTER.pin || pin === '21098' || pin === '12345')
-  ) {
+  return null;
+}
+
+export async function verifyMasterGudangAccessAsync(
+  values: Record<string, string>
+): Promise<WarehouseGateVerifyResult> {
+  const cleanEmail = (values.email || '').trim().toLowerCase();
+  const cleanCode = (values.idMaster || values.idGudang || '').trim().toUpperCase();
+  const password = values.password || '';
+  const cleanPin5 = (values.pin || '').replace(/\D/g, '').slice(0, 5);
+
+  if (!cleanEmail || !cleanCode || !password || cleanPin5.length !== 5) {
     return {
-      id: 'MG-001',
-      nama: DUMMY_MASTER.nama,
-      role: 'master_gudang',
+      ok: false,
+      error:
+        'Email Baru, ID Master Gudang (MG-001), Password Terbaru, dan PIN 5 Angka wajib diisi lengkap.',
+    };
+  }
+  if (BLOCKED_BOOTSTRAP_EMAILS.has(cleanEmail)) {
+    return {
+      ok: false,
+      error:
+        'Gunakan Email Baru yang sudah diverifikasi (email bawaan sistem tidak diizinkan).',
+    };
+  }
+  if (BLOCKED_DEFAULT_PASSWORDS.has(password.trim())) {
+    return {
+      ok: false,
+      error:
+        'Gunakan Password Terbaru akun Anda (password bawaan sistem tidak diizinkan).',
+    };
+  }
+  if (cleanCode.startsWith('AD-') || cleanCode === 'ADMG-001' || cleanCode === 'ADM-001') {
+    return {
+      ok: false,
+      error: 'Hanya akun Master Gudang (MG-001) yang memiliki wewenang verifikasi cetak resmi.',
     };
   }
 
-  return null;
+  try {
+    const { data, error } = await supabase.rpc('verify_master_gudang_access', {
+      p_email: cleanEmail,
+      p_role_code: cleanCode,
+      p_password: password,
+      p_pin_5: cleanPin5,
+    });
+    if (!error && data) {
+      const res = data as Record<string, unknown>;
+      if (res.ok) {
+        return {
+          ok: true,
+          user: {
+            id: String(res.role_code || cleanCode),
+            nama: String(res.full_name || cleanEmail.split('@')[0]),
+            email: String(res.email || cleanEmail),
+            role: 'master_gudang',
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: String(res.error || 'Data verifikasi Master Gudang tidak cocok.'),
+      };
+    }
+    if (
+      error &&
+      error.code !== 'PGRST202' &&
+      !String(error.message || '').includes('Could not find the function')
+    ) {
+      return {
+        ok: false,
+        error: error.message || 'Gagal memverifikasi kredensial Master Gudang ke database.',
+      };
+    }
+  } catch {
+    // Fall through to strict local check only if RPC endpoint is unavailable
+  }
+
+  const localMatch = verifyMasterGudangPrintCredential(values);
+  if (localMatch) {
+    return { ok: true, user: localMatch };
+  }
+  return {
+    ok: false,
+    error: 'Email Baru, ID Master Gudang, Password Terbaru, atau PIN 5 Angka tidak sesuai.',
+  };
+}
+
+export async function verifyWarehouseAccessAsync(
+  values: Record<string, string>
+): Promise<WarehouseGateVerifyResult> {
+  const cleanEmail = (values.email || '').trim().toLowerCase();
+  const cleanCode = (values.idGudang || values.idMaster || '').trim().toUpperCase();
+  const password = values.password || '';
+  const cleanPin5 = (values.pin || '').replace(/\D/g, '').slice(0, 5);
+
+  if (!cleanEmail || !cleanCode || !password || cleanPin5.length !== 5) {
+    return {
+      ok: false,
+      error:
+        'Email Baru, ID Akun (MG-001 / AD-001), Password Terbaru, dan PIN 5 Angka wajib diisi lengkap.',
+    };
+  }
+  if (BLOCKED_BOOTSTRAP_EMAILS.has(cleanEmail)) {
+    return {
+      ok: false,
+      error:
+        'Gunakan Email Baru yang sudah diverifikasi (email bawaan sistem tidak diizinkan).',
+    };
+  }
+  if (BLOCKED_DEFAULT_PASSWORDS.has(password.trim())) {
+    return {
+      ok: false,
+      error:
+        'Gunakan Password Terbaru akun Anda (password bawaan sistem tidak diizinkan).',
+    };
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('verify_warehouse_access', {
+      p_email: cleanEmail,
+      p_role_code: cleanCode,
+      p_password: password,
+      p_pin_5: cleanPin5,
+    });
+    if (!error && data) {
+      const res = data as Record<string, unknown>;
+      if (res.ok) {
+        const mappedRole: WarehouseRole =
+          String(res.role || '') === 'master_gudang' ? 'master_gudang' : 'admin_gudang';
+        return {
+          ok: true,
+          user: {
+            id: String(res.role_code || cleanCode),
+            nama: String(res.full_name || cleanEmail.split('@')[0]),
+            email: String(res.email || cleanEmail),
+            role: mappedRole,
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: String(res.error || 'Data verifikasi akses gudang tidak cocok.'),
+      };
+    }
+    if (
+      error &&
+      error.code !== 'PGRST202' &&
+      !String(error.message || '').includes('Could not find the function')
+    ) {
+      return {
+        ok: false,
+        error: error.message || 'Gagal memverifikasi akses gudang ke database.',
+      };
+    }
+  } catch {
+    // Fall through to strict local check only if RPC endpoint is unavailable
+  }
+
+  const localMatch = verifyWarehouseCredential(values);
+  if (localMatch) {
+    return { ok: true, user: localMatch };
+  }
+  return {
+    ok: false,
+    error: 'Email Baru, ID Akun, Password Terbaru, atau PIN 5 Angka tidak sesuai.',
+  };
 }
 
 export const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes

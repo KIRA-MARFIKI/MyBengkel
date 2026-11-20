@@ -222,14 +222,14 @@ export const Login: React.FC = () => {
       }
 
       if (result.role === 'admin' || result.role === 'master_admin') {
-        login(result.role, result.profile || { email: email.trim() });
+        login(result.role, result.profile || { email: email.trim() }, result.securitySetup);
         const destination = next && next.startsWith('/admin') ? next : '/admin';
         navigate(destination);
       } else if (result.role === 'master_helpdesk') {
-        login('master_helpdesk', result.profile);
+        login('master_helpdesk', result.profile, result.securitySetup);
         navigate('/admin/helpdesk');
       } else {
-        login('customer', result.profile);
+        login('customer', result.profile, result.securitySetup);
         const destination =
           next && !next.startsWith('/admin') && next !== '/' ? next : '/#booking';
         navigate(destination);

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, formatRoleBadgeLabel } from '../lib/mockAuth';
+import { deriveFiveDigitPin } from '../lib/mockCredentials';
 import { useActionCounts } from '../lib/actionCounts';
-import { ActionButton } from '../components/admin/ActionButton';
+import { ActionButton, EyeIcon, EyeOffIcon } from '../components/admin/ActionButton';
 import { CommandPalette } from '../components/admin/CommandPalette';
 import SecuritySetupModal from '../components/admin/SecuritySetupModal';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -129,12 +130,15 @@ const AdminShell: React.FC = () => {
   const resolvedRoleCode =
     user?.roleCode ||
     (role === 'master_helpdesk' ? 'HD-001' : role === 'master_admin' ? 'MG-001' : 'AD-001');
+  const resolvedPin5 =
+    user?.pin5 || (user?.pin && user.pin !== '123456789012' ? deriveFiveDigitPin(user.pin) : '');
   const roleBadgeLabel = formatRoleBadgeLabel(role, resolvedRoleCode);
   const navigate = useNavigate();
   const location = useLocation();
   const counts = useActionCounts();
 
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [showProfilePin5, setShowProfilePin5] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const avatarWrapRef = useRef<HTMLDivElement>(null);
@@ -199,7 +203,10 @@ const AdminShell: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!avatarOpen) return;
+    if (!avatarOpen) {
+      setShowProfilePin5(false);
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -356,17 +363,43 @@ const AdminShell: React.FC = () => {
                       {user?.name || (isHelpdeskOnly ? 'Master Helpdesk' : 'Admin Bengkel')}
                     </div>
                     <div className="text-[11px] text-[#646B7C] truncate">{user?.email}</div>
-                    <span
-                      className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                        isHelpdeskOnly
-                          ? 'bg-[#3DA5F5]/10 text-[#1D6FC4]'
-                          : role === 'master_admin'
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-[#FFBD59]/20 text-[#B45309]'
-                      }`}
-                    >
-                      {roleBadgeLabel}
-                    </span>
+                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          isHelpdeskOnly
+                            ? 'bg-[#3DA5F5]/10 text-[#1D6FC4]'
+                            : role === 'master_admin'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-[#FFBD59]/20 text-[#B45309]'
+                        }`}
+                      >
+                        {roleBadgeLabel}
+                      </span>
+                      <span className="inline-block px-1.5 py-0.5 rounded bg-[#F6F7FA] border border-[#EEF0F4] text-[10px] font-mono font-semibold text-[#1E2230]">
+                        ID Akun: {resolvedRoleCode}
+                      </span>
+                    </div>
+                    {isPrivileged && !showSecurityModal && resolvedPin5 && (
+                      <div className="mt-1.5 flex items-center justify-between gap-2 px-1.5 py-1 rounded bg-[#F6F7FA] border border-[#EEF0F4] text-[10px] text-[#646B7C]">
+                        <span>
+                          PIN 5 Angka:{' '}
+                          <strong className="font-mono text-[#1E2230] tracking-wider">
+                            {showProfilePin5 ? resolvedPin5 : '•••••'}
+                          </strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowProfilePin5((v) => !v);
+                          }}
+                          aria-label={showProfilePin5 ? 'Sembunyikan PIN 5 angka' : 'Tampilkan PIN 5 angka'}
+                          className="p-0.5 text-[#646B7C] hover:text-[#1E2230] cursor-pointer"
+                        >
+                          {showProfilePin5 ? <EyeOffIcon size={12} /> : <EyeIcon size={12} />}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <ActionButton

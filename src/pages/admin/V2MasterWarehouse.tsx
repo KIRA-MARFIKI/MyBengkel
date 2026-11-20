@@ -33,10 +33,9 @@ import { FormField } from '../../components/admin/FormField';
 import { CredentialGate, CredentialGateField } from '../../components/admin/CredentialGate';
 import { useAuth } from '../../lib/mockAuth';
 import {
-  DUMMY_ADMIN,
   DUMMY_ADMIN_GUDANG,
   DUMMY_MASTER,
-  verifyWarehouseCredential,
+  verifyWarehouseAccessAsync,
   type VerifiedWarehouseUser,
 } from '../../lib/mockCredentials';
 import { StockOpnameWorkspace } from '../../components/admin/StockOpnameWorkspace';
@@ -63,55 +62,65 @@ const SATUAN_OPTIONS: PartSatuan[] = ['pcs', 'set', 'liter', 'botol', 'pasang', 
 
 const ENTRY_GATE_FIELDS: CredentialGateField[] = [
   {
+    name: 'email',
+    label: 'Email Baru',
+    type: 'email',
+    placeholder: 'email.aktif@domain.com',
+  },
+  {
     name: 'idGudang',
-    label: 'ID Gudang',
+    label: 'ID Master Gudang / ID Akun',
     type: 'text',
-    placeholder: 'ADMG-001 / MG-001',
+    placeholder: 'MG-001 / AD-001',
     mono: true,
   },
   {
-    name: 'nama',
-    label: 'Nama',
-    type: 'text',
-    placeholder: 'Admin Gudang / Master Gudang Dummy',
-  },
-  {
     name: 'password',
-    label: 'Password',
+    label: 'Password Terbaru',
     type: 'password',
-    placeholder: 'Masukkan password',
+    placeholder: 'Masukkan password terbaru',
   },
   {
     name: 'pin',
-    label: 'PIN (5 digit)',
+    label: 'PIN 5 Angka',
     type: 'password',
     inputMode: 'numeric',
     maxLength: 5,
     digitsOnly: true,
     mono: true,
-    placeholder: '5 digit angka',
+    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
   },
 ];
 
 const EDIT_GATE_FIELDS: CredentialGateField[] = [
   {
-    name: 'nama',
-    label: 'Nama',
-    type: 'text',
-    placeholder: 'Admin Dummy',
+    name: 'email',
+    label: 'Email Baru',
+    type: 'email',
+    placeholder: 'email.aktif@domain.com',
   },
   {
-    name: 'idAdmin',
-    label: 'ID Admin',
+    name: 'idGudang',
+    label: 'ID Master Gudang / ID Akun',
     type: 'text',
-    placeholder: 'ADM-001',
+    placeholder: 'MG-001 / AD-001',
     mono: true,
   },
   {
     name: 'password',
-    label: 'Password',
+    label: 'Password Terbaru',
     type: 'password',
-    placeholder: 'Masukkan password admin',
+    placeholder: 'Masukkan password terbaru',
+  },
+  {
+    name: 'pin',
+    label: 'PIN 5 Angka',
+    type: 'password',
+    inputMode: 'numeric',
+    maxLength: 5,
+    digitsOnly: true,
+    mono: true,
+    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
   },
 ];
 
@@ -552,18 +561,25 @@ const V2MasterWarehouse: React.FC = () => {
       <CredentialGate
         isOpen={!verifiedUser}
         title="Verifikasi Gudang"
-        subtitle="Masukkan kredensial gudang untuk mengakses halaman ini"
-        prototypeNote={`Akses Admin (ID: "AD-001", Password "${DUMMY_ADMIN_GUDANG.password}", PIN 5 digit "21098") atau Master Gudang (ID: "MG-001", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN 5 digit "21098").`}
+        subtitle="Masukkan kredensial akun gudang terbaru untuk mengakses halaman ini"
+        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Akun Anda (misal MG-001 untuk Master Gudang atau AD-001 untuk Admin), Password Terbaru, dan PIN 5 Angka (5 digit terakhir PIN 12 digit dalam urutan terbalik)."
         fields={ENTRY_GATE_FIELDS}
         submitLabel="Masuk"
-        errorMessage="Data verifikasi tidak cocok."
+        errorMessage="Data verifikasi akses gudang tidak cocok."
         onClose={handleCloseEntryGate}
-        onVerify={(vals) => Boolean(verifyWarehouseCredential(vals))}
-        onPass={(vals) => {
-          const user = verifyWarehouseCredential(vals);
-          if (user) {
+        onVerify={async (vals) => {
+          const res = await verifyWarehouseAccessAsync(vals);
+          return {
+            ok: res.ok,
+            error: res.error,
+            data: res.user,
+          };
+        }}
+        onPass={(_vals, data) => {
+          const verified = data as VerifiedWarehouseUser | undefined;
+          if (verified) {
             setManuallyLocked(false);
-            setVerifiedUser(user);
+            setVerifiedUser(verified);
           }
         }}
       />
@@ -595,7 +611,9 @@ const V2MasterWarehouse: React.FC = () => {
                   {isMasterGudang ? 'Master Gudang' : 'Admin Gudang'}
                 </span>
                 <span className="font-medium text-[#1E2230]">{verifiedUser.nama}</span>
-                <samp className="font-mono text-[12px] text-[#646B7C]">({verifiedUser.id})</samp>
+                <samp className="px-1.5 py-0.5 rounded bg-white border border-[#EEF0F4] font-mono text-[11px] font-semibold text-[#1E2230]">
+                  ID: {verifiedUser.id}
+                </samp>
               </div>
 
               <ActionButton
@@ -1092,27 +1110,31 @@ const V2MasterWarehouse: React.FC = () => {
         )}
       </SidePanel>
 
-      {/* Edit CredentialGate (Admin Nama, ID Admin, Password) */}
+      {/* Edit CredentialGate (Verified Email, ID Akun, Password Terbaru, PIN 5 Angka) */}
       <CredentialGate
         isOpen={editGateOpen}
         title="Verifikasi Edit Part"
-        subtitle="Masukkan kredensial Admin untuk mengaktifkan mode edit"
-        prototypeNote={`Prototype: Nama "${DUMMY_ADMIN.nama}", ID Admin "${DUMMY_ADMIN.id}", Password "${DUMMY_ADMIN.password}".`}
+        subtitle="Masukkan kredensial akun gudang terbaru untuk mengaktifkan mode edit"
+        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Akun (MG-001 / AD-001), Password Terbaru, dan PIN 5 Angka."
         fields={EDIT_GATE_FIELDS}
         submitLabel="Buka edit"
         errorMessage="Data verifikasi tidak cocok."
         onClose={() => setEditGateOpen(false)}
-        onVerify={(vals) =>
-          (vals.nama || '').trim() === DUMMY_ADMIN.nama &&
-          (vals.idAdmin || '').trim() === DUMMY_ADMIN.id &&
-          (vals.password || '') === DUMMY_ADMIN.password
-        }
-        onPass={(vals) =>
+        onVerify={async (vals) => {
+          const res = await verifyWarehouseAccessAsync(vals);
+          return {
+            ok: res.ok,
+            error: res.error,
+            data: res.user,
+          };
+        }}
+        onPass={(_vals, data) => {
+          const verified = data as VerifiedWarehouseUser | undefined;
           beginEditAfterGate(
-            (vals.nama || DUMMY_ADMIN.nama).trim(),
-            (vals.idAdmin || DUMMY_ADMIN.id).trim()
-          )
-        }
+            verified?.nama || user?.name || 'Admin',
+            verified?.id || user?.roleCode || 'AD-001'
+          );
+        }}
       />
 
       {/* Part Baru SidePanel */}

@@ -82,7 +82,11 @@ interface AuthContextType {
   user: MockUserProfile | null;
   adminEmail: string;
   securitySetup: SecuritySetupProgress;
-  login: (asRole?: UserRole, profile?: Partial<MockUserProfile>) => void;
+  login: (
+    asRole?: UserRole,
+    profile?: Partial<MockUserProfile>,
+    initialSecuritySetup?: SecuritySetupProgress
+  ) => void;
   registerCustomer: (profile: MockUserProfile) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   updateUserProfile: (profile: Partial<MockUserProfile>) => void;
@@ -466,6 +470,7 @@ export const authenticateCredentialsAsync = async (
   ok: boolean;
   role?: 'admin' | 'master_admin' | 'customer' | 'master_helpdesk';
   profile?: MockUserProfile;
+  securitySetup?: SecuritySetupProgress;
   error?: string;
 }> => {
   const cleanEmail = email.trim().toLowerCase();
@@ -520,6 +525,13 @@ export const authenticateCredentialsAsync = async (
             ? 'admin'
             : 'customer';
 
+        const resolvedPin12 = res.pin_12 ? String(res.pin_12) : cleanPin;
+        const resolvedPin5 = res.raw_pin_5
+          ? String(res.raw_pin_5)
+          : res.pin_5
+          ? String(res.pin_5)
+          : deriveFiveDigitPin(resolvedPin12);
+
         const managed = upsertManagedAccount({
           userId: res.user_id ? String(res.user_id) : undefined,
           roleCode: res.role_code ? String(res.role_code) : undefined,
@@ -527,33 +539,45 @@ export const authenticateCredentialsAsync = async (
           nama: res.full_name ? String(res.full_name) : cleanEmail.split('@')[0],
           email: cleanEmail,
           password: res.raw_password ? String(res.raw_password) : password,
-          pin12: res.pin_12 ? String(res.pin_12) : cleanPin,
-          pin5: res.pin_5 ? String(res.pin_5) : deriveFiveDigitPin(String(res.pin_12 || cleanPin)),
+          pin12: resolvedPin12,
+          pin5: resolvedPin5,
         });
 
+        let computedSetup: SecuritySetupProgress | undefined;
         if (normalizedRole !== 'customer') {
-          const pwDone =
-            !isDefaultPw &&
-            (res.password_completed !== undefined ? Boolean(res.password_completed) : !isDefaultEmail);
-          const emailDone =
-            pwDone &&
+          const onboardingCompletedInDb =
             !isDefaultEmail &&
-            (res.email_completed !== undefined ? Boolean(res.email_completed) : true);
-          const pinDone =
-            pwDone &&
-            emailDone &&
+            !isDefaultPw &&
             !isDefaultPin &&
-            String(res.pin_12 || cleanPin) !== '123456789012' &&
-            (res.pin_completed !== undefined
-              ? Boolean(res.pin_completed)
-              : !Boolean(res.must_complete_security_setup));
+            (Boolean(res.onboarding_completed) ||
+              (res.must_complete_security_setup === false &&
+                (res.pin_completed === undefined || Boolean(res.pin_completed))));
+          const pwDone =
+            onboardingCompletedInDb ||
+            (!isDefaultPw &&
+              (res.password_completed !== undefined ? Boolean(res.password_completed) : !isDefaultEmail));
+          const emailDone =
+            onboardingCompletedInDb ||
+            (pwDone &&
+              !isDefaultEmail &&
+              (res.email_completed !== undefined ? Boolean(res.email_completed) : true));
+          const pinDone =
+            onboardingCompletedInDb ||
+            (pwDone &&
+              emailDone &&
+              !isDefaultPin &&
+              resolvedPin12 !== '123456789012' &&
+              (res.pin_completed !== undefined
+                ? Boolean(res.pin_completed)
+                : !Boolean(res.must_complete_security_setup)));
           const completedCount = (pwDone ? 1 : 0) + (emailDone ? 1 : 0) + (pinDone ? 1 : 0);
           const mustComplete =
-            Boolean(res.must_complete_security_setup) ||
-            isDefaultEmail ||
-            isDefaultPw ||
-            isDefaultPin ||
-            completedCount < 3;
+            !onboardingCompletedInDb &&
+            (Boolean(res.must_complete_security_setup) ||
+              isDefaultEmail ||
+              isDefaultPw ||
+              isDefaultPin ||
+              completedCount < 3);
 
           if (!pwDone && typeof localStorage !== 'undefined') {
             try {
@@ -565,14 +589,15 @@ export const authenticateCredentialsAsync = async (
             }
           }
 
-          saveStoredSecuritySetup(cleanEmail, {
+          computedSetup = {
             mustCompleteSetup: mustComplete,
             passwordCompleted: pwDone,
             emailCompleted: emailDone,
             pinCompleted: pinDone,
             completedCount,
             totalSteps: 3,
-          });
+          };
+          saveStoredSecuritySetup(cleanEmail, computedSetup);
         }
 
         // Best-effort Supabase Auth JWT hydration (safe after verify_account_login_and_pin repairs auth.users)
@@ -584,11 +609,12 @@ export const authenticateCredentialsAsync = async (
           profile: {
             email: managed.email,
             name: managed.nama,
-            roleCode: managed.roleCode,
+            roleCode: res.role_code ? String(res.role_code) : managed.roleCode,
             pin: managed.pin12,
             pin5: managed.pin5,
             phone: managed.phone,
           },
+          securitySetup: computedSetup,
         };
       }
 
@@ -598,6 +624,7 @@ export const authenticateCredentialsAsync = async (
         // Still allow local seed/fallback if matching seeded/local customer
         const localSeedCheck = authenticateCredentials(email, password, pin);
         if (localSeedCheck.ok) {
+          let localSetup: SecuritySetupProgress | undefined;
           if (localSeedCheck.role && localSeedCheck.role !== 'customer') {
             const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin;
             if (mustSetup && typeof localStorage !== 'undefined') {
@@ -609,17 +636,21 @@ export const authenticateCredentialsAsync = async (
                 // ignore
               }
             }
-            saveStoredSecuritySetup(cleanEmail, {
+            localSetup = {
               mustCompleteSetup: mustSetup,
               passwordCompleted: !isDefaultPw && !isDefaultEmail,
               emailCompleted: !isDefaultPw && !isDefaultEmail,
               pinCompleted: !mustSetup,
               completedCount: mustSetup ? 0 : 3,
               totalSteps: 3,
-            });
+            };
+            saveStoredSecuritySetup(cleanEmail, localSetup);
           }
           await establishFreshSupabaseSession(cleanEmail, password);
-          return localSeedCheck;
+          return {
+            ...localSeedCheck,
+            securitySetup: localSetup,
+          };
         }
         return { ok: false, error: msg };
       }
@@ -666,8 +697,24 @@ export const authenticateCredentialsAsync = async (
   if (localRes.ok) {
     await establishFreshSupabaseSession(cleanEmail, password);
   }
+  let fallbackSetup: SecuritySetupProgress | undefined;
   if (localRes.ok && localRes.role && localRes.role !== 'customer') {
-    const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin;
+    const matchedManaged = getManagedAccounts().find(
+      (acc) => acc.email.trim().toLowerCase() === cleanEmail
+    );
+    const hasCustomPin =
+      !isDefaultPin &&
+      Boolean(matchedManaged?.pin12) &&
+      /^\d{12}$/.test(matchedManaged!.pin12) &&
+      matchedManaged!.pin12 !== '123456789012';
+    const hasCustomPw =
+      !isDefaultPw &&
+      (!matchedManaged?.password ||
+        matchedManaged.password === '-' ||
+        !['admin123', 'masteradmin123', 'helpdesk123'].includes(matchedManaged.password.trim()));
+    const isCompletedLocal = !isDefaultEmail && hasCustomPw && (hasCustomPin || !matchedManaged);
+    const mustSetup = isDefaultEmail || isDefaultPw || isDefaultPin || !isCompletedLocal;
+
     if (mustSetup && typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem('mb_pending_onboarding');
@@ -677,16 +724,20 @@ export const authenticateCredentialsAsync = async (
         // ignore
       }
     }
-    saveStoredSecuritySetup(cleanEmail, {
+    fallbackSetup = {
       mustCompleteSetup: mustSetup,
       passwordCompleted: !isDefaultPw && !isDefaultEmail,
       emailCompleted: !isDefaultPw && !isDefaultEmail,
       pinCompleted: !mustSetup,
-      completedCount: mustSetup ? 0 : 3,
+      completedCount: mustSetup ? (!isDefaultPw && !isDefaultEmail ? 2 : 0) : 3,
       totalSteps: 3,
-    });
+    };
+    saveStoredSecuritySetup(cleanEmail, fallbackSetup);
   }
-  return localRes;
+  return {
+    ...localRes,
+    securitySetup: fallbackSetup,
+  };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -798,8 +849,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (user?.email && (role === 'admin' || role === 'master_admin' || role === 'master_helpdesk')) {
+      const cleanEmail = user.email.trim().toLowerCase();
+      const isBootstrap = DEFAULT_BOOTSTRAP_EMAILS.includes(cleanEmail);
       const stored = loadStoredSecuritySetup(user.email, role);
-      setSecuritySetup(stored);
+      setSecuritySetup((prev) => {
+        if (!isBootstrap && !prev.mustCompleteSetup && stored.mustCompleteSetup) {
+          return prev;
+        }
+        return stored;
+      });
     }
   }, [user?.email, role]);
 
@@ -879,13 +937,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error = zeroArgRes.error;
       }
       if (!error && data?.ok) {
-        const pwDone = Boolean(data.password_completed) || localVerifiedEmailMatch;
+        const onboardingCompletedInDb =
+          !isBootstrapEmail &&
+          (Boolean(data.onboarding_completed) ||
+            (data.must_complete_security_setup === false && Boolean(data.pin_completed)) ||
+            (Boolean(data.password_completed) &&
+              Boolean(data.email_completed) &&
+              Boolean(data.pin_completed)));
+        const pwDone =
+          onboardingCompletedInDb || Boolean(data.password_completed) || localVerifiedEmailMatch;
         const emDone =
-          pwDone && !isBootstrapEmail && (Boolean(data.email_completed) || localVerifiedEmailMatch);
-        const pinDone = pwDone && emDone && Boolean(data.pin_completed);
+          onboardingCompletedInDb ||
+          (pwDone && !isBootstrapEmail && (Boolean(data.email_completed) || localVerifiedEmailMatch));
+        const pinDone = onboardingCompletedInDb || (pwDone && emDone && Boolean(data.pin_completed));
         const doneCount = (pwDone ? 1 : 0) + (emDone ? 1 : 0) + (pinDone ? 1 : 0);
         const mustComplete =
-          Boolean(data.must_complete_security_setup) || isBootstrapEmail || doneCount < 3;
+          !onboardingCompletedInDb &&
+          (Boolean(data.must_complete_security_setup) || isBootstrapEmail || doneCount < 3);
         const next: SecuritySetupProgress = {
           mustCompleteSetup: mustComplete,
           passwordCompleted: pwDone,
@@ -896,14 +964,74 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setSecuritySetup(next);
         saveStoredSecuritySetup(user.email, next);
+
+        const resolvedCode = data.role_code ? String(data.role_code) : undefined;
+        const resolvedPin5 = data.raw_pin_5
+          ? String(data.raw_pin_5)
+          : data.pin_5
+          ? String(data.pin_5)
+          : undefined;
+        if (
+          (resolvedCode && resolvedCode !== user.roleCode) ||
+          (resolvedPin5 && resolvedPin5 !== user.pin5)
+        ) {
+          setUser((prev) => {
+            if (!prev) return prev;
+            const updated: MockUserProfile = {
+              ...prev,
+              roleCode: resolvedCode || prev.roleCode,
+              pin5: resolvedPin5 || prev.pin5,
+            };
+            if (typeof sessionStorage !== 'undefined') {
+              try {
+                sessionStorage.setItem(USER_KEY, JSON.stringify(updated));
+              } catch {
+                // ignore
+              }
+            }
+            return updated;
+          });
+        }
         return;
       }
     } catch {
       // safe fallback
     }
 
+    if (!isBootstrapEmail) {
+      const localManaged = getManagedAccounts().find(
+        (acc) => acc.email.trim().toLowerCase() === cleanCurrentEmail
+      );
+      const hasCustomPw =
+        Boolean(localManaged?.password) &&
+        localManaged!.password !== '-' &&
+        !['admin123', 'masteradmin123', 'helpdesk123'].includes(localManaged!.password.trim());
+      const hasCustomPin12 =
+        Boolean(localManaged?.pin12) &&
+        /^\d{12}$/.test(localManaged!.pin12) &&
+        localManaged!.pin12 !== '123456789012';
+      if (hasCustomPw && hasCustomPin12) {
+        const unlocked: SecuritySetupProgress = {
+          mustCompleteSetup: false,
+          passwordCompleted: true,
+          emailCompleted: true,
+          pinCompleted: true,
+          completedCount: 3,
+          totalSteps: 3,
+        };
+        setSecuritySetup(unlocked);
+        saveStoredSecuritySetup(user.email, unlocked);
+        return;
+      }
+    }
+
     const current = loadStoredSecuritySetup(user.email, role);
-    setSecuritySetup(current);
+    setSecuritySetup((prev) => {
+      if (!isBootstrapEmail && !prev.mustCompleteSetup && current.mustCompleteSetup) {
+        return prev;
+      }
+      return current;
+    });
   };
 
   const updateSecurityPassword = async (
@@ -1765,7 +1893,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { ok: true };
   };
 
-  const login = (asRole: UserRole = 'admin', profile?: Partial<MockUserProfile>) => {
+  const login = (
+    asRole: UserRole = 'admin',
+    profile?: Partial<MockUserProfile>,
+    initialSecuritySetup?: SecuritySetupProgress
+  ) => {
     const registered = getRegisteredCustomer();
     const managedList = getManagedAccounts();
     const targetEmail = (profile?.email || '').trim().toLowerCase();
@@ -1809,12 +1941,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               pin5: profile?.pin5 || managedMatch?.pin5 || SEED_ACCOUNTS.admin.pin5,
             };
 
+    const nextSetup = initialSecuritySetup ?? loadStoredSecuritySetup(nextUser.email, asRole);
+    if (asRole && asRole !== 'customer' && nextUser.email) {
+      saveStoredSecuritySetup(nextUser.email, nextSetup);
+    }
+    setSecuritySetup(nextSetup);
     setIsLoggedIn(Boolean(asRole));
     setRole(asRole);
     setUser(asRole ? nextUser : null);
-
-    const nextSetup = loadStoredSecuritySetup(nextUser.email, asRole);
-    setSecuritySetup(nextSetup);
 
     if (typeof sessionStorage !== 'undefined') {
       if (asRole) {

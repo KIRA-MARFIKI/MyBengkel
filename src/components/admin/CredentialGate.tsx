@@ -7,13 +7,21 @@ import { FormField } from './FormField';
 export interface CredentialGateField {
   name: string;
   label: string;
-  type?: 'text' | 'password';
+  type?: 'text' | 'password' | 'email';
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   maxLength?: number;
   placeholder?: string;
   digitsOnly?: boolean;
   mono?: boolean;
 }
+
+export interface CredentialGateVerifyResponse {
+  ok: boolean;
+  error?: string;
+  data?: unknown;
+}
+
+export type CredentialGateVerifyResult = boolean | CredentialGateVerifyResponse;
 
 export interface CredentialGateProps {
   isOpen: boolean;
@@ -25,8 +33,10 @@ export interface CredentialGateProps {
   submitLabel?: string;
   errorMessage?: string;
   onClose: () => void;
-  onVerify: (values: Record<string, string>) => boolean;
-  onPass: (values: Record<string, string>) => void;
+  onVerify: (
+    values: Record<string, string>
+  ) => CredentialGateVerifyResult | Promise<CredentialGateVerifyResult>;
+  onPass: (values: Record<string, string>, verifiedData?: unknown) => void;
 }
 
 export const CredentialGate: React.FC<CredentialGateProps> = ({
@@ -47,6 +57,7 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
   const [failCount, setFailCount] = useState<number>(0);
   const [lockedUntil, setLockedUntil] = useState<number>(0);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -56,6 +67,7 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
       }
       setValues(initial);
       setError('');
+      setIsVerifying(false);
     }
   }, [isOpen, fields]);
 
@@ -76,28 +88,55 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
   const isLocked = lockedUntil > nowMs;
   const remainingSec = isLocked ? Math.max(1, Math.ceil((lockedUntil - nowMs) / 1000)) : 0;
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (isLocked) return;
+    if (isLocked || isVerifying) return;
 
-    const passed = onVerify(values);
-    if (!passed) {
+    setIsVerifying(true);
+    setError('');
+    try {
+      const result = await onVerify(values);
+      const passed = typeof result === 'boolean' ? result : Boolean(result?.ok);
+      const customError =
+        typeof result === 'object' && result !== null && result.error
+          ? result.error
+          : errorMessage;
+
+      if (!passed) {
+        const nextFails = failCount + 1;
+        setFailCount(nextFails);
+        if (nextFails >= 3) {
+          const until = Date.now() + 30_000;
+          setLockedUntil(until);
+          setNowMs(Date.now());
+          setError(`${customError} Dialog dikunci selama 30 detik.`);
+        } else {
+          setError(customError);
+        }
+        return;
+      }
+
+      setFailCount(0);
+      setError('');
+      const verifiedData =
+        typeof result === 'object' && result !== null ? result.data : undefined;
+      onPass(values, verifiedData);
+    } catch (err: unknown) {
       const nextFails = failCount + 1;
       setFailCount(nextFails);
+      const fallbackErr =
+        err instanceof Error && err.message ? err.message : errorMessage;
       if (nextFails >= 3) {
         const until = Date.now() + 30_000;
         setLockedUntil(until);
         setNowMs(Date.now());
-        setError(`${errorMessage} Dialog dikunci selama 30 detik.`);
+        setError(`${fallbackErr} Dialog dikunci selama 30 detik.`);
       } else {
-        setError(errorMessage);
+        setError(fallbackErr);
       }
-      return;
+    } finally {
+      setIsVerifying(false);
     }
-
-    setFailCount(0);
-    setError('');
-    onPass(values);
   };
 
   return (
@@ -110,21 +149,36 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
       maxWidthClass="max-w-[440px]"
       footer={
         <>
-          <ActionButton type="button" intent="cancel" onClick={onClose}>
+          <ActionButton type="button" intent="cancel" disabled={isVerifying} onClick={onClose}>
             Tutup
           </ActionButton>
           <ActionButton
             type="button"
             intent="start"
-            disabled={isLocked}
-            onClick={() => handleSubmit()}
+            disabled={isLocked || isVerifying}
+            onClick={() => {
+              void handleSubmit();
+            }}
           >
-            {submitLabel}
+            {isVerifying ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                Memverifikasi...
+              </span>
+            ) : (
+              submitLabel
+            )}
           </ActionButton>
         </>
       }
     >
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <form
+        onSubmit={(e) => {
+          void handleSubmit(e);
+        }}
+        noValidate
+        className="space-y-4"
+      >
         {description && <p className="text-[14px] text-[#646B7C]">{description}</p>}
 
         {prototypeNote && (
@@ -143,7 +197,14 @@ export const CredentialGate: React.FC<CredentialGateProps> = ({
                 type={field.type || 'text'}
                 inputMode={field.inputMode}
                 maxLength={field.maxLength}
-                disabled={isLocked}
+                disabled={isLocked || isVerifying}
+                autoComplete={
+                  field.type === 'password'
+                    ? 'current-password'
+                    : field.type === 'email'
+                    ? 'email'
+                    : 'off'
+                }
                 placeholder={field.placeholder}
                 value={val}
                 onChange={(e) => {

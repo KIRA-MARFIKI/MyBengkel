@@ -1,10 +1,8 @@
 // Centralized Admin Activity Audit Trail & Export Authorization System
 import {
   DUMMY_ADMIN,
-  DUMMY_ADMIN_PIN,
-  DUMMY_ADMIN_LOGIN_PIN,
   DUMMY_MASTER,
-  DUMMY_MASTER_HELPDESK,
+  deriveFiveDigitPin,
   getManagedAccounts,
 } from './mockCredentials';
 import { formatNowJakarta } from './stockOpname';
@@ -102,13 +100,16 @@ export function verifyExportPin(pin: string): ExportAuthResult {
     return { ok: false, error: 'PIN wajib diisi.' };
   }
 
-  // Check Managed Accounts (5-digit derived PINs like 21098 and 12-digit PINs)
+  // Check Managed Accounts with non-default PINs (derived 5-digit reversed suffix or full 12-digit PIN)
   const accounts = getManagedAccounts();
-  const matchingMaster = accounts.find(
-    (acc) =>
-      (acc.role === 'master_admin' || acc.role === 'master_gudang' || acc.role === 'master_helpdesk') &&
-      (clean === acc.pin5 || clean === acc.pin12)
-  );
+  const matchingMaster = accounts.find((acc) => {
+    if (acc.role !== 'master_admin' && acc.role !== 'master_gudang' && acc.role !== 'master_helpdesk') {
+      return false;
+    }
+    if (!acc.pin12 || acc.pin12 === '123456789012') return false;
+    const derived5 = acc.pin5 || deriveFiveDigitPin(acc.pin12);
+    return clean === derived5 || clean === acc.pin12;
+  });
   if (matchingMaster) {
     return {
       ok: true,
@@ -124,11 +125,12 @@ export function verifyExportPin(pin: string): ExportAuthResult {
     };
   }
 
-  const matchingAdmin = accounts.find(
-    (acc) =>
-      (acc.role === 'admin' || acc.role === 'admin_gudang') &&
-      (clean === acc.pin5 || clean === acc.pin12)
-  );
+  const matchingAdmin = accounts.find((acc) => {
+    if (acc.role !== 'admin' && acc.role !== 'admin_gudang') return false;
+    if (!acc.pin12 || acc.pin12 === '123456789012') return false;
+    const derived5 = acc.pin5 || deriveFiveDigitPin(acc.pin12);
+    return clean === derived5 || clean === acc.pin12;
+  });
   if (matchingAdmin) {
     return {
       ok: true,
@@ -136,37 +138,6 @@ export function verifyExportPin(pin: string): ExportAuthResult {
       actor: {
         id: matchingAdmin.roleCode || DUMMY_ADMIN.id,
         nama: matchingAdmin.nama || DUMMY_ADMIN.nama,
-        role: 'admin',
-      },
-    };
-  }
-
-  // 1. Check Master Gudang / Master Admin / Helpdesk PIN (21098 or 12345 or 123456789012)
-  if (
-    clean === DUMMY_MASTER.pin ||
-    clean === '21098' ||
-    clean === '12345' ||
-    clean === DUMMY_MASTER_HELPDESK.pin
-  ) {
-    return {
-      ok: true,
-      role: 'master_admin',
-      actor: {
-        id: DUMMY_MASTER.id,
-        nama: DUMMY_MASTER.nama,
-        role: 'master_admin',
-      },
-    };
-  }
-
-  // 2. Check Admin PIN: 123456 or 123456789012
-  if (clean === DUMMY_ADMIN_PIN || clean === DUMMY_ADMIN_LOGIN_PIN || clean === DUMMY_ADMIN.pin) {
-    return {
-      ok: true,
-      role: 'admin',
-      actor: {
-        id: DUMMY_ADMIN.id,
-        nama: DUMMY_ADMIN.nama,
         role: 'admin',
       },
     };

@@ -51,8 +51,8 @@ import { CredentialGate, type CredentialGateField } from '../../components/admin
 import {
   DUMMY_ADMIN,
   DUMMY_MASTER,
-  DUMMY_ADMIN_GUDANG,
-  verifyMasterGudangPrintCredential,
+  verifyMasterGudangAccessAsync,
+  type VerifiedWarehouseUser,
 } from '../../lib/mockCredentials';
 import { printDocument } from '../../lib/printDocument';
 import {
@@ -63,6 +63,12 @@ import {
 
 const MASTER_PRINT_GATE_FIELDS: CredentialGateField[] = [
   {
+    name: 'email',
+    label: 'Email Baru',
+    type: 'email',
+    placeholder: 'email.aktif@domain.com',
+  },
+  {
     name: 'idMaster',
     label: 'ID Master Gudang',
     type: 'text',
@@ -70,26 +76,20 @@ const MASTER_PRINT_GATE_FIELDS: CredentialGateField[] = [
     mono: true,
   },
   {
-    name: 'nama',
-    label: 'Nama Master Gudang',
-    type: 'text',
-    placeholder: 'Master Gudang Dummy',
-  },
-  {
     name: 'password',
-    label: 'Password',
+    label: 'Password Terbaru',
     type: 'password',
-    placeholder: 'Masukkan password',
+    placeholder: 'Masukkan password terbaru',
   },
   {
     name: 'pin',
-    label: 'PIN (5 digit)',
+    label: 'PIN 5 Angka',
     type: 'password',
     inputMode: 'numeric',
     maxLength: 5,
     digitsOnly: true,
     mono: true,
-    placeholder: '5 digit angka',
+    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
   },
 ];
 
@@ -2153,17 +2153,25 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
       <CredentialGate
         isOpen={printGateOpen}
         title="Verifikasi Master Gudang untuk Cetak Laporan"
-        subtitle="Masukkan kredensial Master Gudang untuk mengesahkan cetak laporan resmi"
-        prototypeNote={`Gunakan ID Master Gudang "${DUMMY_MASTER.id}", Nama "${DUMMY_MASTER.nama}", Password "${DUMMY_MASTER.password}", PIN 5 digit "21098". Kredensial Admin (${DUMMY_ADMIN_GUDANG.id}) tidak memiliki wewenang cetak resmi.`}
+        subtitle="Masukkan kredensial Master Gudang terbaru untuk mengesahkan cetak laporan resmi"
+        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Master Gudang (misal MG-001 dari profil akun Anda), Password Terbaru, dan PIN 5 Angka (5 digit terakhir PIN 12 digit dalam urutan terbalik)."
         fields={MASTER_PRINT_GATE_FIELDS}
         submitLabel="Verifikasi & Cetak"
-        errorMessage="Data verifikasi tidak cocok."
+        errorMessage="Data verifikasi Master Gudang tidak cocok."
         onClose={() => {
           setPrintGateOpen(false);
           setSessionToPrint(null);
         }}
-        onVerify={(vals) => Boolean(verifyMasterGudangPrintCredential(vals))}
-        onPass={() => {
+        onVerify={async (vals) => {
+          const res = await verifyMasterGudangAccessAsync(vals);
+          return {
+            ok: res.ok,
+            error: res.error,
+            data: res.user,
+          };
+        }}
+        onPass={(_vals, data) => {
+          const verifiedMaster = data as VerifiedWarehouseUser | undefined;
           setPrintGateOpen(false);
           const target =
             sessionToPrint ||
@@ -2176,7 +2184,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
 
           const printData = buildPrintStokOpnameData(target);
           printDocument('stok_opname', printData);
-          notify(`Laporan stok opname ${target.code} siap dicetak.`);
+          notify(
+            `Laporan stok opname ${target.code} disahkan oleh ${verifiedMaster?.id || 'MG-001'} dan siap dicetak.`
+          );
           setSessionToPrint(null);
         }}
       />
