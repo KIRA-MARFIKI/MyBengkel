@@ -1290,7 +1290,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data, error } = await withEmailTimeout(
         supabase.auth.updateUser(
           { email: newEmail },
-          { emailRedirectTo: `${window.location.origin}/admin?step=pin` }
+          {
+            emailRedirectTo: `${window.location.origin}${
+              role === 'master_helpdesk' ? '/admin/helpdesk' : '/admin'
+            }?step=pin`,
+          }
         )
       );
       void data;
@@ -1612,8 +1616,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           error: 'PIN baru tidak boleh menggunakan PIN bawaan sistem (123456789012).',
         };
       }
-    } else if (clean12.length < 4 || clean12.length > 12 || !/^\d+$/.test(clean12)) {
-      return { ok: false, error: 'PIN harus berupa angka antara 4 hingga 12 digit.' };
+    } else if (!/^\d{1,4}$/.test(clean12)) {
+      return { ok: false, error: 'Masukkan PIN maksimal 4 angka.' };
     }
 
     const cleanPin = clean12;

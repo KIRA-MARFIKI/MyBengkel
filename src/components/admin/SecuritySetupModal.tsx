@@ -590,8 +590,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     const isEmailStepVerified =
       securitySetup.emailCompleted ||
       (pendingEmailDone && Boolean(verifiedEmailTarget)) ||
-      (Boolean(lastVerifiedEmail) && !DEFAULT_BOOTSTRAP_EMAILS.includes(lastVerifiedEmail)) ||
-      (activeTab === 'pin' && Boolean(verifiedEmailTarget));
+      (Boolean(lastVerifiedEmail) && !DEFAULT_BOOTSTRAP_EMAILS.includes(lastVerifiedEmail));
 
     if (!isEmailStepVerified) {
       setPinError('Wajib menyelesaikan Langkah 2 (Verifikasi Email Akun) terlebih dahulu.');
@@ -659,11 +658,11 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
           e.stopPropagation();
         }
       }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 overflow-y-auto select-none"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-2.5 sm:p-4 overflow-y-auto select-none"
     >
-      <div className="relative w-full max-w-[95vw] sm:max-w-[620px] max-h-[90dvh] overflow-y-auto bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] my-3 sm:my-6 select-text">
+      <div className="relative w-[95vw] sm:w-full sm:max-w-[620px] max-h-[90dvh] flex flex-col overflow-hidden bg-white rounded-[16px] shadow-2xl border border-[#D9DDE6] select-text">
         {/* Header (Strictly non-dismissible: no X close icon) */}
-        <div className="p-4 sm:p-6 md:p-8 bg-[#1E2230] text-white">
+        <div className="p-4 sm:p-6 bg-[#1E2230] text-white shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold uppercase tracking-wider bg-[#FFBD59]/20 text-[#FFBD59] whitespace-nowrap">
@@ -704,7 +703,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         </div>
 
         {/* 3 Steps Tabs (Strictly Sequential: Step 2 locked until Step 1 done; Step 3 locked until Step 1 & Step 2 done) */}
-        <div className="flex border-b border-[#EEF0F4] bg-[#F7F8FA]">
+        <div className="flex border-b border-[#EEF0F4] bg-[#F7F8FA] shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('password')}
@@ -803,7 +802,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         </div>
 
         {/* Content Section */}
-        <div className="p-4 sm:p-6 md:p-8">
+        <div className="p-4 sm:p-6 flex-1 min-h-0 overflow-y-auto overscroll-contain">
           {/* TAB 1: CHANGE PASSWORD */}
           {activeTab === 'password' && (
             <form onSubmit={handleSubmitPassword} className="space-y-4">
@@ -835,7 +834,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="Masukkan kata sandi saat ini"
-                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-base sm:text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
               </div>
 
@@ -851,7 +850,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   <button
                     type="button"
                     onClick={() => setShowPassword((s) => !s)}
-                    className="min-h-[44px] md:min-h-0 px-1 text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1"
+                    className="min-h-[44px] md:min-h-0 px-1 text-xs text-[#646B7C] hover:text-[#1E2230] inline-flex items-center gap-1 cursor-pointer"
                   >
                     {showPassword ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
                     <span>{showPassword ? 'Sembunyikan' : 'Tampilkan'}</span>
@@ -863,7 +862,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Minimal 8 karakter campuran"
-                  className="w-full min-h-[44px] px-3 py-2 text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
+                  className="w-full min-h-[44px] px-3 py-2 text-base sm:text-sm border border-[#D9DDE6] rounded-[6px] focus:outline-none focus:border-[#1E2230]"
                 />
 
                 {/* Password Strength Meter */}
@@ -1186,14 +1185,14 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 px-4 sm:px-6 md:px-8 bg-[#F6F7FA] border-t border-[#EEF0F4] flex flex-col md:flex-row items-center justify-center md:justify-between gap-2 text-xs text-[#646B7C]">
-          <span className="text-center md:text-left">
+        <div className="p-3.5 sm:p-4 px-4 sm:px-6 bg-[#F6F7FA] border-t border-[#EEF0F4] flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2 text-xs text-[#646B7C] shrink-0">
+          <span className="text-center sm:text-left">
             Seluruh 3 langkah keamanan wajib diselesaikan secara berurutan untuk membuka akses dashboard.
           </span>
           <button
             type="button"
             onClick={logout}
-            className="text-xs font-semibold text-[#D62E5A] hover:underline shrink-0"
+            className="min-h-[44px] sm:min-h-0 px-2 inline-flex items-center text-xs font-semibold text-[#D62E5A] hover:underline shrink-0 cursor-pointer"
           >
             Keluar dari Sesi
           </button>

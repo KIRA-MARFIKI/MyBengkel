@@ -1068,7 +1068,6 @@ export function createServiceFromDraft(input: CreateServiceFromDraftInput): Serv
       nama: input.customer.nama.trim(),
       jenisKonsumen: input.customer.jenisKonsumen,
       hp: input.customer.hp.trim(),
-      ktp: (input.customer.ktp || '').trim(),
       alamat: input.customer.alamat.trim(),
     },
     vehicle: {
@@ -1170,7 +1169,6 @@ export function markBookingArrived(bookingId: string): MarkBookingArrivedResult 
       nama: booking.customerName,
       jenisKonsumen: '',
       hp: '',
-      ktp: '',
       alamat: '',
     },
     vehicle: {

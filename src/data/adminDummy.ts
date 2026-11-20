@@ -143,7 +143,6 @@ export interface ServiceFormCustomer {
   nama: string;
   jenisKonsumen: 'Pemilik' | 'Pemakai' | '';
   hp: string;
-  ktp?: string;
   alamat: string;
 }
 

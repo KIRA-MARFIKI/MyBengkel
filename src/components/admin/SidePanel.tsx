@@ -323,12 +323,12 @@ export const SidePanel: React.FC<SidePanelProps> = ({
           className="relative w-full h-full max-h-dvh bg-white sm:rounded-l-[24px] flex flex-col overflow-hidden"
         >
           <div className="p-4 sm:p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-3 sm:gap-4 shrink-0">
-            <div>
-              <h2 id="sidepanel-title" className="admin-macro-section">
+            <div className="min-w-0 flex-1">
+              <h2 id="sidepanel-title" className="admin-macro-section break-words">
                 {title}
               </h2>
               {description && (
-                <p className="font-sans font-normal text-[14px] text-[#646B7C] mt-1">
+                <p className="font-sans font-normal text-[14px] text-[#646B7C] mt-1 break-words">
                   {description}
                 </p>
               )}

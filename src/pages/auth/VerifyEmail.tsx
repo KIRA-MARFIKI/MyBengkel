@@ -201,7 +201,7 @@ export const VerifyEmail: React.FC = () => {
         return;
       }
 
-      // 7. Wait briefly for a late auth event (hash based links), then fall back
+      // 7. Wait briefly for a late auth event (hash based links), then verify cleanly against server
       const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session?.user?.email_confirmed_at && session.user.email) {
           listener.subscription.unsubscribe();
@@ -210,15 +210,33 @@ export const VerifyEmail: React.FC = () => {
       });
 
       timers.push(
-        window.setTimeout(() => {
+        window.setTimeout(async () => {
           listener.subscription.unsubscribe();
           if (handledRef.current || !active) return;
-          if (pending?.newEmail) {
-            // Local development fallback when Supabase cannot hand over a session
-            finish('confirmed', pending.newEmail.toLowerCase(), role, false);
-          } else {
-            fail('Tautan verifikasi tidak valid atau telah kedaluwarsa.');
+
+          const fallbackEmail = (pending?.newEmail || localEmail || '').trim().toLowerCase();
+          if (fallbackEmail) {
+            try {
+              const { data: userRes } = await supabase.auth.getUser();
+              const authUser = userRes?.user;
+              const authEmail = (authUser?.email || '').trim().toLowerCase();
+              if (authUser?.email_confirmed_at && authEmail === fallbackEmail) {
+                finish('confirmed', authEmail, role, pinCompleted);
+                return;
+              }
+              const { data: statusRes } = await supabase.rpc('get_account_security_status', {
+                p_email: fallbackEmail,
+              });
+              if (statusRes?.ok && statusRes?.email_completed) {
+                finish('confirmed', fallbackEmail, role, Boolean(statusRes.pin_completed));
+                return;
+              }
+            } catch {
+              // Fall through to explicit verification failure below
+            }
           }
+
+          fail('Tautan verifikasi tidak valid atau belum terkonfirmasi. Silakan kirim ulang tautan dari langkah Email Akun.');
         }, 3500)
       );
     }

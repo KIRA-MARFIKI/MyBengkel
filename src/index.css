@@ -7,6 +7,11 @@
     background-color: #0E0E0C;
     color: #EEECE5;
     font-family: 'IBM Plex Sans', sans-serif;
+    overflow-x: clip;
+  }
+
+  body {
+    overflow-x: clip;
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -518,8 +523,16 @@
   }
 
   @media (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
     .admin-card {
       padding: 16px;
+    }
+    .admin-input {
+      font-size: 16px;
     }
     .admin-action-btn,
     .admin-btn,

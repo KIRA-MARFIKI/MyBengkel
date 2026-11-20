@@ -238,8 +238,8 @@ const AdminShell: React.FC = () => {
   const accountLabel = 'Menu akun admin';
 
   return (
-    <div className="admin-theme min-h-screen font-sans bg-[#EEF0F4] text-[#1E2230]">
-      <div className="max-w-[1360px] mx-auto px-3 pb-24 md:pb-8 pt-3 sm:px-4 sm:pt-4 md:px-6">
+    <div className="admin-theme min-h-screen font-sans bg-[#EEF0F4] text-[#1E2230] overflow-x-clip">
+      <div className="max-w-[1360px] mx-auto px-3 [padding-bottom:calc(6.75rem+env(safe-area-inset-bottom))] md:pb-8 pt-3 sm:px-4 sm:pt-4 md:px-6 min-w-0">
         <header
           data-admin-topbar
           className="topbar relative rounded-[20px] md:rounded-[24px] min-h-[64px] md:min-h-[72px] bg-white shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-nowrap md:flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2"

@@ -732,7 +732,74 @@ export const V2Sales: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[12px]">
+                {/* Mobile (< 768px): Stacked Cart Cards */}
+                <div className="space-y-2.5 md:hidden">
+                  {cartLines.map((line, idx) => (
+                    <div
+                      key={line.partCode || idx}
+                      className="rounded-[12px] border border-[#EEF0F4] bg-white p-3.5 space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-[12px] font-semibold text-[#1A64B0]">
+                            {line.partCode}
+                          </div>
+                          <div className="font-semibold text-[14px] text-[#1E2230] break-words">
+                            {line.name}
+                          </div>
+                        </div>
+                        <TrashIconButton
+                          ariaLabel={`Hapus item ${line.name}`}
+                          title="Hapus dari daftar"
+                          onClick={() => handleRemoveLine(idx)}
+                          className="!min-w-[44px] !min-h-[44px] !rounded-[10px] shrink-0"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#EEF0F4]">
+                        <div className="inline-flex items-center border border-[#D9DDE6] rounded-[10px] bg-white">
+                          <button
+                            type="button"
+                            aria-label={`Kurangi ${line.name}`}
+                            onClick={() => handleUpdateLineQty(idx, -1)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#646B7C] active:bg-[#F3F4F6] cursor-pointer"
+                          >
+                            <MinusIconButton
+                              ariaLabel="Kurangi"
+                              className="!w-5 !h-5 !min-w-[20px] !min-h-[20px]"
+                            />
+                          </button>
+                          <span className="px-2.5 font-semibold tabular-nums text-[14px]">
+                            {line.qty}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Tambah ${line.name}`}
+                            onClick={() => handleUpdateLineQty(idx, 1)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#646B7C] active:bg-[#F3F4F6] cursor-pointer"
+                          >
+                            <PlusIconButton
+                              ariaLabel="Tambah"
+                              className="!w-5 !h-5 !min-w-[20px] !min-h-[20px]"
+                            />
+                          </button>
+                        </div>
+
+                        <div className="text-right tabular-nums">
+                          <div className="text-[11px] text-[#646B7C]">
+                            {formatRupiah(line.price)} / item
+                          </div>
+                          <div className="font-bold text-[15px] text-[#1E2230]">
+                            {formatRupiah(line.subtotal)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop / Tablet (>= 768px): Cart Table */}
+                <div className="hidden md:block overflow-x-auto [-webkit-overflow-scrolling:touch] border border-[#EEF0F4] rounded-[12px]">
                   <table className="w-full text-left text-[13px] min-w-[520px]">
                     <thead className="bg-[#F8F9FA] text-[#646B7C] font-semibold border-b border-[#EEF0F4]">
                       <tr>
@@ -926,7 +993,7 @@ export const V2Sales: React.FC = () => {
                           key={amt}
                           type="button"
                           onClick={() => setCashReceivedInput(String(amt))}
-                          className="px-2.5 py-1 text-[12px] font-semibold rounded-[8px] bg-white border border-[#D9DDE6] text-[#1E2230] hover:bg-[#EEF0F4] transition-colors tabular-nums"
+                          className="min-h-[44px] md:min-h-0 px-3 py-1.5 md:px-2.5 md:py-1 text-[12px] font-semibold rounded-[8px] bg-white border border-[#D9DDE6] text-[#1E2230] hover:bg-[#EEF0F4] transition-colors tabular-nums cursor-pointer"
                         >
                           {amt === cartGrandTotal ? 'Uang Pas' : formatRupiah(amt)}
                         </button>

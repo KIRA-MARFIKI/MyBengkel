@@ -83,15 +83,6 @@ export const DUMMY_ADMIN = {
 };
 
 // MOCK: verify on the server in production. Never check secrets in the browser.
-export const DUMMY_ADMIN_GUDANG = {
-  id: 'AD-001',
-  nama: 'Admin Gudang',
-  password: 'admin123',
-  pin: deriveFiveDigitPin('123456789012'), // 21098
-  role: 'admin_gudang' as const,
-};
-
-// MOCK: verify on the server in production. Never check secrets in the browser.
 export const DUMMY_MASTER = {
   id: 'MG-001',
   nama: 'Master Gudang MyBengkel',
@@ -99,8 +90,6 @@ export const DUMMY_MASTER = {
   pin: deriveFiveDigitPin('123456789012'), // 21098
   role: 'master_gudang' as const,
 };
-
-export const DUMMY_MASTER_GUDANG = DUMMY_MASTER;
 
 export const DEFAULT_HELPDESK_EMAIL = 'helpdesk@mybengkel.com';
 

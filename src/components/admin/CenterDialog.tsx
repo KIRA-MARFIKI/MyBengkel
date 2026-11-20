@@ -313,12 +313,12 @@ export const CenterDialog: React.FC<CenterDialogProps> = ({
           className="relative w-full max-h-[90dvh] bg-white rounded-[20px] flex flex-col overflow-hidden"
         >
           <div className="p-4 sm:p-5 border-b border-[#EEF0F4] flex items-start justify-between gap-3 sm:gap-4 shrink-0">
-            <div>
-              <h2 id={titleId} className="admin-macro-section text-[#1E2230]">
+            <div className="min-w-0 flex-1">
+              <h2 id={titleId} className="admin-macro-section text-[#1E2230] break-words">
                 {title}
               </h2>
               {subtitle && (
-                <p className="font-mono text-[13px] text-[#646B7C] mt-0.5">{subtitle}</p>
+                <p className="font-mono text-[13px] text-[#646B7C] mt-0.5 break-words">{subtitle}</p>
               )}
             </div>
             {!hideHeaderClose &&
