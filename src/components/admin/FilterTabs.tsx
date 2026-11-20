@@ -57,8 +57,8 @@ export const FilterTabs: React.FC<FilterTabsProps> = ({ tabs, value, onChange, a
             onKeyDown={(e) => onKeyDown(e, idx)}
             className={`admin-tab-btn relative z-10 ${
               active
-                ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
-                : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
+                ? 'admin-tab-active bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+                : 'admin-tab-inactive bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
             }`}
           >
             <span>{t.label}</span>

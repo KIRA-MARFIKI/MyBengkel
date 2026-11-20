@@ -112,6 +112,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
   const [newEmail, setNewEmail] = useState('');
   const [confirmEmail, setConfirmEmail] = useState('');
   const [emailError, setEmailError] = useState('');
+  const [emailTechnicalDetail, setEmailTechnicalDetail] = useState('');
   const [emailNotice, setEmailNotice] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailChecking, setEmailChecking] = useState(false);
@@ -421,6 +422,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
   const handleSubmitEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setEmailError('');
+    setEmailTechnicalDetail('');
     setEmailNotice('');
 
     if (!securitySetup.passwordCompleted) {
@@ -463,8 +465,12 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
     try {
       const res = await updateSecurityEmail(cleanNew);
       if (!res.ok) {
+        setEmailNotice('');
         setEmailError(res.error || 'Gagal mengirim permintaan verifikasi email.');
+        setEmailTechnicalDetail(res.technicalDetail || '');
       } else {
+        setEmailError('');
+        setEmailTechnicalDetail('');
         setEmailNotice(
           `Tautan verifikasi telah dikirim ke ${cleanNew}. Silakan buka kotak masuk email Anda dan klik tautan verifikasi untuk membuka Langkah 3 (PIN Baru).`
         );
@@ -1013,14 +1019,28 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
               </div>
 
               {emailError && (
-                <div className="p-3 rounded-[6px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A] leading-relaxed">
-                  {emailError}
+                <div
+                  role="alert"
+                  className="p-3.5 rounded-[8px] bg-[#FFF2F5] border border-[#FAD2DC] text-xs text-[#D62E5A] leading-relaxed space-y-1.5"
+                >
+                  <div className="font-bold uppercase tracking-wide text-[11px] text-[#B4234A]">
+                    Email verifikasi GAGAL dikirim
+                  </div>
+                  <p className="font-medium">{emailError}</p>
+                  {emailTechnicalDetail && (
+                    <p className="font-mono text-[11px] text-[#9F1239] bg-white/70 px-2 py-1 rounded border border-[#FAD2DC] break-words">
+                      {emailTechnicalDetail}
+                    </p>
+                  )}
                 </div>
               )}
 
               {emailNotice && (
                 <div className="p-4 rounded-[8px] bg-[#F0FDF4] border border-[#BBF7D0] text-xs text-[#16A34A] space-y-2.5">
                   <div className="font-medium">{emailNotice}</div>
+                  <p className="text-[11px] text-[#4B5563] leading-relaxed">
+                    Jika email belum masuk ke Inbox atau Spam dalam 1 menit, pastikan opsi &apos;Secure email change&apos; dimatikan dan SMTP Gmail aktif di Supabase.
+                  </p>
                   <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-[#BBF7D0]/50 text-[11px]">
                     <span className="text-[#646B7C]">
                       Belum menerima email? Tunggu{' '}
@@ -1047,7 +1067,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 {resendCooldown > 0 ? (
                   <span className="text-xs text-[#646B7C] text-center sm:text-left">
-                    Kirim ulang dalam <strong className="tabular-nums">{resendCooldown}s</strong>
+                    Tunggu <strong className="tabular-nums">{resendCooldown} dtk</strong> untuk mengirim ulang
                   </span>
                 ) : (
                   <span className="hidden sm:inline" />
@@ -1061,7 +1081,7 @@ export const SecuritySetupModal: React.FC<SecuritySetupModalProps> = ({ isOpen }
                   {emailLoading
                     ? 'Mengirim...'
                     : resendCooldown > 0
-                    ? `Kirim Ulang (${resendCooldown}s)`
+                    ? `Kirim ulang dalam ${resendCooldown} dtk`
                     : 'Kirim Tautan Verifikasi Email'}
                 </ActionButton>
               </div>

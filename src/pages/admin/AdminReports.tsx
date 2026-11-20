@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAdmin } from '../../context/AdminContext';
 import { useAuth } from '../../lib/mockAuth';
 import { DataCard } from '../../components/admin/DataCard';
@@ -22,8 +23,6 @@ import {
   type SalesPartPerformanceRow,
   type WarehousePartConditionRow,
   type WarehouseMovementRow,
-  type WarehouseRequestRow,
-  type WarehouseOrderRow,
   type WarehouseStockOpnameRow,
   calculateServiceReport,
   calculateSalesReport,
@@ -47,12 +46,9 @@ import {
 import { CenterDialog } from '../../components/admin/CenterDialog';
 import { ExportPinModal } from '../../components/admin/ExportPinModal';
 import type { AuditLog, ExportAuthResult } from '../../lib/auditTrail';
-import { CredentialGate, type CredentialGateField } from '../../components/admin/CredentialGate';
 import {
   DUMMY_ADMIN,
   DUMMY_MASTER,
-  verifyMasterGudangAccessAsync,
-  type VerifiedWarehouseUser,
 } from '../../lib/mockCredentials';
 import { printDocument } from '../../lib/printDocument';
 import {
@@ -60,38 +56,6 @@ import {
   STOCK_OPNAME_STATUS_LABELS,
   type StockOpnameSession,
 } from '../../lib/stockOpname';
-
-const MASTER_PRINT_GATE_FIELDS: CredentialGateField[] = [
-  {
-    name: 'email',
-    label: 'Email Baru',
-    type: 'email',
-    placeholder: 'email.aktif@domain.com',
-  },
-  {
-    name: 'idMaster',
-    label: 'ID Master Gudang',
-    type: 'text',
-    placeholder: 'MG-001',
-    mono: true,
-  },
-  {
-    name: 'password',
-    label: 'Password Terbaru',
-    type: 'password',
-    placeholder: 'Masukkan password terbaru',
-  },
-  {
-    name: 'pin',
-    label: 'PIN 5 Angka',
-    type: 'password',
-    inputMode: 'numeric',
-    maxLength: 5,
-    digitsOnly: true,
-    mono: true,
-    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
-  },
-];
 
 // Mask sensitive fields in audit log payloads
 function maskSensitiveData(data: any): any {
@@ -126,6 +90,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
   const adminStore = useAdmin();
   const { user, role } = useAuth();
   const { notify } = useActionIsland();
+  const canAccessWarehouseReport = role === 'master_admin' || role === 'master_helpdesk';
 
   // Export PIN Gate & Master Admin Access State
   const [pinModalOpen, setPinModalOpen] = useState(false);
@@ -138,10 +103,24 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
   const [auditSearch, setAuditSearch] = useState('');
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
 
-  // Print gate state for official stock opname printing
-  const [printGateOpen, setPrintGateOpen] = useState(false);
-  const [sessionToPrint, setSessionToPrint] = useState<StockOpnameSession | null>(null);
   const [stockOpnameSearch, setStockOpnameSearch] = useState('');
+
+  const handlePrintStockOpname = (explicitSession?: StockOpnameSession | null) => {
+    if (!canAccessWarehouseReport) {
+      notify('Akses ditolak: Anda tidak memiliki izin mencetak laporan gudang.');
+      return;
+    }
+    const target =
+      explicitSession ||
+      (adminStore.stockOpnames || []).find((s) => s.status === 'disetujui');
+    if (!target || target.status !== 'disetujui') {
+      notify('Belum ada sesi stok opname dengan status disetujui untuk dicetak.');
+      return;
+    }
+    const printData = buildPrintStokOpnameData(target);
+    printDocument('stok_opname', printData);
+    notify(`Laporan stok opname ${target.code} siap dicetak.`);
+  };
 
   // Unified Period State across entire reporting system
   const [period, setPeriod] = useState<ReportPeriod>({
@@ -358,28 +337,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
     { key: 'sumberMutasi', header: 'Sumber', render: (r) => <span className="text-[12px] text-[#646B7C]">{r.sumberMutasi}</span> },
   ];
 
-  const requestColumns: Column<WarehouseRequestRow>[] = [
-    { key: 'kodePermintaan', header: 'No. Request', render: (r) => <samp className="font-mono font-medium">{r.kodePermintaan}</samp> },
-    { key: 'jenisPermintaan', header: 'Jenis' },
-    { key: 'pemohon', header: 'Pemohon' },
-    { key: 'kodePart', header: 'Kode Part', render: (r) => <samp className="font-mono text-[#1A64B0]">{r.kodePart}</samp> },
-    { key: 'namaPart', header: 'Nama Part' },
-    { key: 'jumlah', header: 'Qty', align: 'center', render: (r) => <span className="tabular-nums font-semibold">{r.jumlah}</span> },
-    { key: 'statusPermintaan', header: 'Status', align: 'center', render: (r) => <span className="text-[12px] font-semibold">{r.statusPermintaan}</span> },
-    { key: 'kodePemesanan', header: 'No. Pesanan', render: (r) => <samp className="font-mono text-[11px]">{r.kodePemesanan}</samp> },
-    { key: 'tanggalDiajukan', header: 'Tgl Diajukan', render: (r) => <span className="tabular-nums text-[12px]">{r.tanggalDiajukan}</span> },
-  ];
-
-  const orderColumns: Column<WarehouseOrderRow>[] = [
-    { key: 'kodePemesanan', header: 'No. Pesanan', render: (r) => <samp className="font-mono font-semibold text-[#1E2230]">{r.kodePemesanan}</samp> },
-    { key: 'jenis', header: 'Jenis', align: 'center', render: (r) => <span className="font-mono text-[11px]">{r.jenis}</span> },
-    { key: 'namaPemohon', header: 'Pemohon' },
-    { key: 'jumlahPart', header: 'Total Part', align: 'center', render: (r) => <span className="tabular-nums font-semibold">{r.jumlahPart}</span> },
-    { key: 'status', header: 'Status', align: 'center', render: (r) => <span className="text-[12px] font-semibold">{r.status}</span> },
-    { key: 'tanggalPesan', header: 'Tgl Pesan', render: (r) => <span className="tabular-nums text-[12px]">{r.tanggalPesan}</span> },
-    { key: 'tanggalSampai', header: 'Tgl Sampai', render: (r) => <span className="tabular-nums text-[12px]">{r.tanggalSampai}</span> },
-  ];
-
   // Filtered rows for search fields
   const [exportingKey, setExportingKey] = useState<string | null>(null);
 
@@ -398,6 +355,10 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
   };
 
   const handleDownloadCsv = (targetScope: 'all' | 'service' | 'sales' | 'warehouse') => {
+    if (targetScope === 'warehouse' && !canAccessWarehouseReport) {
+      notify('Akses ditolak: Admin bengkel tidak diperbolehkan mengunduh Laporan Gudang.');
+      return;
+    }
     const csvKey = `${targetScope}-csv`;
     handleExport(csvKey, () => {
       const escapeCell = (val: unknown): string => {
@@ -460,7 +421,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
         pushRow([]);
       }
 
-      if (targetScope === 'all' || targetScope === 'warehouse') {
+      if ((targetScope === 'all' && canAccessWarehouseReport) || targetScope === 'warehouse') {
         pushRow(['=== BAGIAN 3: LAPORAN PENGELOLAAN GUDANG ===']);
         pushRow(['Metrik', 'Nilai']);
         pushRow(['Total Jenis Part', warehouseData.kpis.totalJenisPart]);
@@ -479,11 +440,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
         pushRow(['Tanggal Mutasi', 'Kode Part', 'Nama Part', 'Jenis Mutasi', 'Masuk', 'Keluar', 'Referensi', 'Sumber', 'Dicatat Oleh']);
         for (const r of warehouseData.tables.movements) {
           pushRow([r.tanggal, r.kodePart, r.namaPart, r.jenisMutasi, r.qtyMasuk, r.qtyKeluar, r.referensiTransaksi, r.sumberMutasi, r.dicatatOleh]);
-        }
-        pushRow([]);
-        pushRow(['No. Request', 'Jenis', 'Pemohon', 'Kode Part', 'Nama Part', 'Qty', 'Status', 'No. Pesanan', 'Tgl Diajukan', 'Tgl Diterima']);
-        for (const r of warehouseData.tables.requests) {
-          pushRow([r.kodePermintaan, r.jenisPermintaan, r.pemohon, r.kodePart, r.namaPart, r.jumlah, r.statusPermintaan, r.kodePemesanan, r.tanggalDiajukan, r.tanggalDiterima]);
         }
       }
 
@@ -580,14 +536,14 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
             periodLabel: serviceData.periodLabel,
           });
           notify(
-            `Laporan Master Admin telah diekspor (${kind.toUpperCase()} - 30 sheet dengan audit trail lengkap).`
+            `Laporan Master Admin telah diekspor (${kind.toUpperCase()}).`
           );
         } else {
-          // Admin export
+          // Admin or non-master export: enforce warehouse visibility RBAC
           if (kind === 'excel') {
-            exportExcelAllReports(serviceData, salesData, warehouseData);
+            exportExcelAllReports(serviceData, salesData, warehouseData, canAccessWarehouseReport);
           } else {
-            exportPdfAllReports(serviceData, salesData, warehouseData);
+            exportPdfAllReports(serviceData, salesData, warehouseData, canAccessWarehouseReport);
           }
           adminStore.recordReportExportEvent({
             actor,
@@ -596,7 +552,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
             periodLabel: serviceData.periodLabel,
           });
           notify(
-            `Laporan lengkap telah diekspor (Admin - 14 sheet).`
+            canAccessWarehouseReport
+              ? 'Laporan lengkap (Servis, Penjualan, Gudang) telah diekspor.'
+              : 'Laporan Servis & Penjualan telah diekspor (Admin).'
           );
         }
       } catch (err) {
@@ -735,10 +693,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
         r.status === 'disetujui' ? (
           <button
             type="button"
-            onClick={() => {
-              setSessionToPrint(r.sessionRef);
-              setPrintGateOpen(true);
-            }}
+            onClick={() => handlePrintStockOpname(r.sessionRef)}
             className="inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-semibold text-[#1D6FC4] hover:bg-[#EBF5FB] rounded-[8px] transition-colors"
             title="Cetak Laporan Resmi Sesi Ini"
           >
@@ -896,9 +851,13 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
     },
   ];
 
+  if (mode === 'gudang' && !canAccessWarehouseReport) {
+    return <Navigate to="/admin/laporan/servis" replace />;
+  }
+
   const showServis = mode === 'semua' || mode === 'servis';
   const showPenjualan = mode === 'semua' || mode === 'penjualan';
-  const showGudang = mode === 'semua' || mode === 'gudang';
+  const showGudang = canAccessWarehouseReport && (mode === 'semua' || mode === 'gudang');
 
   return (
     <div className="space-y-8">
@@ -921,7 +880,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
           </p>
         </div>
 
-        {/* Export Controls (Available across all report modes for Admin, Master Gudang, & Helpdesk) */}
+        {/* Export Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
           {mode === 'semua' ? (
             <>
@@ -1002,7 +961,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                     handleExport('servis-excel', () => exportExcelServiceReport(serviceData));
                   } else if (mode === 'penjualan') {
                     handleExport('penjualan-excel', () => exportExcelSalesReport(salesData));
-                  } else {
+                  } else if (canAccessWarehouseReport) {
                     handleExport('gudang-excel', () => exportExcelWarehouseReport(warehouseData));
                   }
                 }}
@@ -1018,7 +977,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                     handleExport('servis-pdf', () => exportPdfServiceReport(serviceData));
                   } else if (mode === 'penjualan') {
                     handleExport('penjualan-pdf', () => exportPdfSalesReport(salesData));
-                  } else {
+                  } else if (canAccessWarehouseReport) {
                     handleExport('gudang-pdf', () => exportPdfWarehouseReport(warehouseData));
                   }
                 }}
@@ -1533,7 +1492,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
           </div>
 
           {/* Warehouse KPI Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
             <div className="p-4 rounded-[14px] bg-white border border-[#EEF0F4] shadow-sm">
               <div className="text-[12px] text-[#646B7C]">Total Jenis Part</div>
               <div className="text-[22px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
@@ -1566,14 +1525,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
                 <span className="text-[#B4234A]">-{warehouseData.kpis.totalBarangKeluar}</span>
               </div>
               <div className="text-[11px] text-[#9CA3AF] mt-0.5">Mutasi pada periode</div>
-            </div>
-
-            <div className="p-4 rounded-[14px] bg-white border border-[#FDE68A] bg-gradient-to-br from-white to-[#FFFBEB] shadow-sm col-span-2 md:col-span-1">
-              <div className="text-[12px] font-semibold text-[#B45309]">Pesanan Belum Sampai</div>
-              <div className="text-[22px] font-extrabold text-[#1E2230] mt-1 tabular-nums">
-                <RollingNumber value={warehouseData.kpis.totalPesananBelumSampai} />
-              </div>
-              <div className="text-[11px] text-[#B45309] mt-0.5">Order dalam pengiriman</div>
             </div>
           </div>
 
@@ -1654,28 +1605,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
             />
           </DataCard>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <DataCard title="Riwayat Permintaan Penyediaan">
-              <DataTable
-                columns={requestColumns}
-                data={warehouseData.tables.requests}
-                keyExtractor={(r, i) => `${r.kodePermintaan}-${i}`}
-                swapKey={`wh-requests-${period.mode}-${period.dateStr}`}
-                emptyMessage="Tidak ada permintaan penyediaan pada periode ini."
-              />
-            </DataCard>
-
-            <DataCard title="Riwayat Pemesanan Gudang">
-              <DataTable
-                columns={orderColumns}
-                data={warehouseData.tables.orders}
-                keyExtractor={(r) => r.kodePemesanan}
-                swapKey={`wh-orders-${period.mode}-${period.dateStr}`}
-                emptyMessage="Tidak ada pemesanan pada periode ini."
-              />
-            </DataCard>
-          </div>
-
           {/* Laporan Stok Opname Subsection */}
           <div className="space-y-4 pt-6 border-t border-[#EEF0F4]">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1688,13 +1617,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
               <div className="flex flex-wrap items-center gap-2">
                 <ActionButton
                   intent="start"
-                  onClick={() => {
-                    const latestApproved = (adminStore.stockOpnames || []).find(
-                      (s) => s.status === 'disetujui'
-                    );
-                    setSessionToPrint(latestApproved || null);
-                    setPrintGateOpen(true);
-                  }}
+                  onClick={() => handlePrintStockOpname(null)}
                   className="!h-8 !text-[12px]"
                 >
                   <span className="flex items-center gap-1.5">
@@ -2148,48 +2071,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({ mode = 'semua' }) =>
           </div>
         )}
       </CenterDialog>
-
-      {/* Official Master Gudang Print Credential Gate */}
-      <CredentialGate
-        isOpen={printGateOpen}
-        title="Verifikasi Master Gudang untuk Cetak Laporan"
-        subtitle="Masukkan kredensial Master Gudang terbaru untuk mengesahkan cetak laporan resmi"
-        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Master Gudang (misal MG-001 dari profil akun Anda), Password Terbaru, dan PIN 5 Angka (5 digit terakhir PIN 12 digit dalam urutan terbalik)."
-        fields={MASTER_PRINT_GATE_FIELDS}
-        submitLabel="Verifikasi & Cetak"
-        errorMessage="Data verifikasi Master Gudang tidak cocok."
-        onClose={() => {
-          setPrintGateOpen(false);
-          setSessionToPrint(null);
-        }}
-        onVerify={async (vals) => {
-          const res = await verifyMasterGudangAccessAsync(vals);
-          return {
-            ok: res.ok,
-            error: res.error,
-            data: res.user,
-          };
-        }}
-        onPass={(_vals, data) => {
-          const verifiedMaster = data as VerifiedWarehouseUser | undefined;
-          setPrintGateOpen(false);
-          const target =
-            sessionToPrint ||
-            (adminStore.stockOpnames || []).find((s) => s.status === 'disetujui');
-
-          if (!target || target.status !== 'disetujui') {
-            notify('Belum ada sesi stok opname dengan status disetujui untuk dicetak.');
-            return;
-          }
-
-          const printData = buildPrintStokOpnameData(target);
-          printDocument('stok_opname', printData);
-          notify(
-            `Laporan stok opname ${target.code} disahkan oleh ${verifiedMaster?.id || 'MG-001'} dan siap dicetak.`
-          );
-          setSessionToPrint(null);
-        }}
-      />
     </div>
   );
 };

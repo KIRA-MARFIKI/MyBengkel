@@ -49,7 +49,7 @@ export {
 export type UserRole = 'admin' | 'master_admin' | 'customer' | 'master_helpdesk' | null;
 
 // MOCK: verify on the server. Never check secrets in the browser.
-export const DEFAULT_ADMIN_EMAIL = 'admin@mybengkel.id';
+export const DEFAULT_ADMIN_EMAIL = 'admin@mybengkel.com';
 
 export interface MockUserProfile {
   email: string;
@@ -91,7 +91,9 @@ interface AuthContextType {
   logout: () => void;
   updateUserProfile: (profile: Partial<MockUserProfile>) => void;
   updateSecurityPassword: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
-  updateSecurityEmail: (newEmail: string) => Promise<{ ok: boolean; error?: string }>;
+  updateSecurityEmail: (
+    newEmail: string
+  ) => Promise<{ ok: boolean; error?: string; technicalDetail?: string }>;
   updateSecurityPin: (
     newPin: string,
     options?: { allowVerifiedOnPinStep?: boolean; verifiedEmailOverride?: string }
@@ -111,17 +113,9 @@ interface AuthContextType {
 }
 
 export const DEFAULT_BOOTSTRAP_EMAILS = [
-  'admin@mubengkel.com',
   'admin@mybengkel.com',
-  'admin@mybengkel.id',
   'masteradmin@mybengkel.com',
-  'masteradmin@mubengkel.com',
   'helpdesk@mybengkel.com',
-  'helpdesk@mubengkel.com',
-  'helpdesk@gmail.com',
-  'mybenngkeladmin@mybengkel.com',
-  'masteradminmybengkel@mybengkel.com',
-  'helpdeskmybengkel@mybengkel.com',
 ];
 
 const ROLE_KEY = 'mock-auth-role';
@@ -324,10 +318,8 @@ export const authenticateCredentials = (
     };
   }
 
-  // 1. Check Master Helpdesk (helpdesk@mybengkel.com, helpdesk@mubengkel.com, helpdesk@gmail.com)
-  if (
-    ['helpdesk@mybengkel.com', 'helpdesk@mubengkel.com', 'helpdesk@gmail.com'].includes(cleanEmail)
-  ) {
+  // 1. Check Master Helpdesk (helpdesk@mybengkel.com)
+  if (cleanEmail === 'helpdesk@mybengkel.com') {
     if (
       password === SEED_ACCOUNTS.helpdesk.password &&
       (cleanPin === SEED_ACCOUNTS.helpdesk.pin || cleanPin === SEED_ACCOUNTS.helpdesk.pin5)
@@ -349,8 +341,8 @@ export const authenticateCredentials = (
     };
   }
 
-  // 2. Check Master Admin (masteradmin@mybengkel.com, masteradmin@mubengkel.com)
-  if (['masteradmin@mybengkel.com', 'masteradmin@mubengkel.com'].includes(cleanEmail)) {
+  // 2. Check Master Admin (masteradmin@mybengkel.com)
+  if (cleanEmail === 'masteradmin@mybengkel.com') {
     if (
       password === SEED_ACCOUNTS.masterAdmin.password &&
       (cleanPin === SEED_ACCOUNTS.masterAdmin.pin || cleanPin === SEED_ACCOUNTS.masterAdmin.pin5)
@@ -372,12 +364,8 @@ export const authenticateCredentials = (
     };
   }
 
-  // 3. Check Admin (admin@mubengkel.com, admin@mybengkel.com, admin@mybengkel.id)
-  if (
-    ['admin@mubengkel.com', 'admin@mybengkel.com', DEFAULT_ADMIN_EMAIL.toLowerCase()].includes(
-      cleanEmail
-    )
-  ) {
+  // 3. Check Admin (admin@mybengkel.com)
+  if (cleanEmail === 'admin@mybengkel.com') {
     if (
       password === SEED_ACCOUNTS.admin.password &&
       (cleanPin === SEED_ACCOUNTS.admin.pin ||
@@ -1175,7 +1163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateSecurityEmail = async (
     rawNewEmail: string
-  ): Promise<{ ok: boolean; error?: string }> => {
+  ): Promise<{ ok: boolean; error?: string; technicalDetail?: string }> => {
     if (!securitySetup.passwordCompleted) {
       return {
         ok: false,
@@ -1249,8 +1237,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password: pendingPassword || undefined,
     });
 
-    let requestError: string | null = null;
-
     try {
       // Lock Step 3 in PostgreSQL by recording pending_email & setting email_verified_at = NULL
       await supabase.rpc('record_security_email_pending', {
@@ -1260,6 +1246,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // ignore if RPC not yet applied
     }
+
+    let requestError: { status?: number | string; message: string } | null = null;
+
+    const withEmailTimeout = async <T,>(promise: Promise<T>): Promise<T> => {
+      let timerId: number | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timerId = window.setTimeout(() => {
+          reject(new Error('Request timeout after 15000ms'));
+        }, 15_000);
+      });
+      try {
+        return await Promise.race([promise, timeoutPromise]);
+      } finally {
+        if (timerId !== undefined) window.clearTimeout(timerId);
+      }
+    };
 
     try {
       // Ensure an active Supabase Auth session exists for the current user before calling updateUser
@@ -1275,52 +1277,102 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           new Set([pendingPassword, defaultBootstrapPw].filter(Boolean))
         );
         for (const candidatePw of candidatePasswords) {
-          const { data: signInData } = await establishFreshSupabaseSession(
-            currentAuthEmail,
-            candidatePw
+          const { data: signInData } = await withEmailTimeout(
+            establishFreshSupabaseSession(currentAuthEmail, candidatePw)
           );
           if (signInData?.session) break;
         }
       }
 
-      const { data, error } = await supabase.auth.updateUser({
-        email: newEmail,
-      }, {
-        emailRedirectTo: `${window.location.origin}/admin?step=pin`
-      });
+      const { data, error } = await withEmailTimeout(
+        supabase.auth.updateUser(
+          { email: newEmail },
+          { emailRedirectTo: `${window.location.origin}/admin?step=pin` }
+        )
+      );
       void data;
 
-      if (error && !error.message.includes('session')) {
-        requestError = error.message;
+      if (error) {
+        requestError = {
+          status: (error as any).status ?? (error as any).code ?? 'AUTH_ERR',
+          message: error.message || 'Gagal mengirim tautan verifikasi email.',
+        };
       }
     } catch (err: any) {
-      console.warn('Supabase updateUser network exception:', err);
-      requestError = String(err?.message || err || 'Network error');
+      console.warn('Supabase updateUser exception:', err);
+      requestError = {
+        status: err?.status ?? err?.code ?? 'NETWORK',
+        message: String(err?.message || err || 'Network error'),
+      };
     }
 
     if (requestError) {
-      const lower = requestError.toLowerCase();
+      const rawMsg = requestError.message || 'Unknown error';
+      const lower = rawMsg.toLowerCase();
+      const statusStr = String(requestError.status ?? '');
+      const technicalDetail = `Detail teknis: [${statusStr || 'ERR'}] ${rawMsg}`;
+
+      if (
+        statusStr === '429' ||
+        lower.includes('rate limit') ||
+        lower.includes('security purposes') ||
+        lower.includes('too many requests') ||
+        lower.includes('over_email_send_rate_limit')
+      ) {
+        return {
+          ok: false,
+          error:
+            'Gagal mengirim email: Terkena batas pengiriman sementara (Rate Limit). Tunggu 60 detik sebelum mengirim ulang, atau periksa pengaturan Rate Limit SMTP di Supabase.',
+          technicalDetail,
+        };
+      }
+      if (
+        statusStr === '500' ||
+        lower.includes('error sending') ||
+        lower.includes('smtp') ||
+        lower.includes('unexpected_failure')
+      ) {
+        return {
+          ok: false,
+          error:
+            'Gagal mengirim email: Server SMTP menolak pengiriman. Periksa konfigurasi Custom SMTP Gmail (App Password, Port 465/587, dan Sender Email) di Supabase Dashboard.',
+          technicalDetail,
+        };
+      }
+      if (
+        lower.includes('already registered') ||
+        lower.includes('already exists') ||
+        lower.includes('duplicate') ||
+        lower.includes('email_exists') ||
+        lower.includes('already been registered')
+      ) {
+        return {
+          ok: false,
+          error: 'Gagal mengirim email: Alamat email baru sudah digunakan oleh akun lain.',
+          technicalDetail,
+        };
+      }
       if (
         lower.includes('failed to fetch') ||
         lower.includes('err_timed_out') ||
         lower.includes('timed out') ||
         lower.includes('timeout') ||
-        lower.includes('504')
+        lower.includes('network') ||
+        statusStr === '504'
       ) {
         return {
           ok: false,
           error:
-            'Koneksi verifikasi email ke Supabase melebihi batas waktu (Timeout). Periksa koneksi internet Anda atau pastikan konfigurasi Custom SMTP di Supabase Dashboard (Port 587 dan Google App Password) sudah aktif dan benar.',
+            'Gagal mengirim email: Koneksi ke server terputus atau waktu habis. Periksa jaringan lalu coba lagi.',
+          technicalDetail,
         };
       }
-      if (lower.includes('error sending confirmation mail') || lower.includes('smtp')) {
-        return {
-          ok: false,
-          error:
-            'Gagal mengirim email konfirmasi dari server Supabase. Pastikan pengaturan Custom SMTP di Supabase Dashboard (Port 587, Host smtp.gmail.com, dan App Password 16 digit) sudah benar.',
-        };
-      }
-      return { ok: false, error: requestError };
+
+      return {
+        ok: false,
+        error: 'Gagal mengirim email: Permintaan verifikasi ditolak oleh server.',
+        technicalDetail,
+      };
     }
 
     // CRITICAL: emailCompleted remains FALSE until verification link callback executes!

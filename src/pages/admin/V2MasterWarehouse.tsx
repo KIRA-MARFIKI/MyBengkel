@@ -1,1339 +1,839 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  createMasterPart,
-  editMasterPart,
-  getNextPartCode,
-  useAdmin,
-} from '../../context/AdminContext';
-import {
-  Part,
-  computeStock,
-} from '../../data/adminDummy';
-
-type PartSatuan = 'pcs' | 'set' | 'liter' | 'botol' | 'pasang' | 'meter' | string;
-import {
-  computePartRequestDates,
-  hasReceivedLineForPart,
-} from './V2Warehouse';
+import React, { useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAdmin } from '../../context/AdminContext';
+import { computeStock, Part, PartJenis } from '../../data/adminDummy';
+import { useAuth } from '../../lib/mockAuth';
+import { formatRupiah } from '../../lib/format';
+import { type VerifiedWarehouseUser } from '../../lib/mockCredentials';
+import { PageHeader } from '../../components/admin/PageHeader';
+import { KpiCard } from '../../components/admin/KpiCard';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { FilterTabs } from '../../components/admin/FilterTabs';
-import { FilterMenu } from '../../components/admin/FilterMenu';
+import { SearchField } from '../../components/admin/SearchField';
 import { StatusChip } from '../../components/admin/StatusChip';
-import {
-  ActionButton,
-  PlusIconButton,
-  SearchIconButton,
-  XIconButton,
-} from '../../components/admin/ActionButton';
 import { SidePanel } from '../../components/admin/SidePanel';
-import { ExpandableSearch } from '../../components/admin/ExpandableSearch';
+import { CenterDialog } from '../../components/admin/CenterDialog';
 import { FormField } from '../../components/admin/FormField';
-import { CredentialGate, CredentialGateField } from '../../components/admin/CredentialGate';
-import { useAuth } from '../../lib/mockAuth';
-import {
-  DUMMY_ADMIN_GUDANG,
-  DUMMY_MASTER,
-  verifyWarehouseAccessAsync,
-  type VerifiedWarehouseUser,
-} from '../../lib/mockCredentials';
+import { ActionButton, PencilIcon, PlusIcon, TrashIcon } from '../../components/admin/ActionButton';
 import { StockOpnameWorkspace } from '../../components/admin/StockOpnameWorkspace';
-import {
-  setLastTriggerElement,
-  useActionIsland,
-} from '../../components/admin/island/IslandSystem';
-import { formatRupiah } from '../../lib/format';
+import { useActionIsland } from '../../components/admin/island/IslandSystem';
 
-type MasterFilterKey = 'all' | 'low' | 'ho_fulfilled';
+type WorkspaceTab = 'input' | 'opname';
+type PartListFilter = 'all' | 'low' | 'reguler' | 'ho';
 
-const MASTER_FILTER_OPTIONS = [
-  { value: 'all', label: 'Semua' },
-  { value: 'low', label: 'Di bawah minimum' },
-  { value: 'ho_fulfilled', label: 'Jenis HO terpenuhi' },
-];
-
-const WAREHOUSE_TABS = [
-  { value: 'katalog', label: 'Katalog Part' },
-  { value: 'opname', label: 'Stok Opname' },
-];
-
-const SATUAN_OPTIONS: PartSatuan[] = ['pcs', 'set', 'liter', 'botol', 'pasang', 'meter'];
-
-const ENTRY_GATE_FIELDS: CredentialGateField[] = [
-  {
-    name: 'email',
-    label: 'Email Baru',
-    type: 'email',
-    placeholder: 'email.aktif@domain.com',
-  },
-  {
-    name: 'idGudang',
-    label: 'ID Master Gudang / ID Akun',
-    type: 'text',
-    placeholder: 'MG-001 / AD-001',
-    mono: true,
-  },
-  {
-    name: 'password',
-    label: 'Password Terbaru',
-    type: 'password',
-    placeholder: 'Masukkan password terbaru',
-  },
-  {
-    name: 'pin',
-    label: 'PIN 5 Angka',
-    type: 'password',
-    inputMode: 'numeric',
-    maxLength: 5,
-    digitsOnly: true,
-    mono: true,
-    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
-  },
-];
-
-const EDIT_GATE_FIELDS: CredentialGateField[] = [
-  {
-    name: 'email',
-    label: 'Email Baru',
-    type: 'email',
-    placeholder: 'email.aktif@domain.com',
-  },
-  {
-    name: 'idGudang',
-    label: 'ID Master Gudang / ID Akun',
-    type: 'text',
-    placeholder: 'MG-001 / AD-001',
-    mono: true,
-  },
-  {
-    name: 'password',
-    label: 'Password Terbaru',
-    type: 'password',
-    placeholder: 'Masukkan password terbaru',
-  },
-  {
-    name: 'pin',
-    label: 'PIN 5 Angka',
-    type: 'password',
-    inputMode: 'numeric',
-    maxLength: 5,
-    digitsOnly: true,
-    mono: true,
-    placeholder: '5 digit terbalik dari akhiran PIN 12 digit',
-  },
-];
+const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
 
 const V2MasterWarehouse: React.FC = () => {
-  const navigate = useNavigate();
   const { role, user } = useAuth();
-  const { parts, partChanges, stockMovements, purchaseRequests } = useAdmin();
+  const {
+    parts,
+    stockMovements,
+    partHistory,
+    getNextPartCode,
+    createMasterPart,
+    editMasterPart,
+    deleteMasterPart,
+    recordAuditEvent,
+  } = useAdmin();
   const { notify } = useActionIsland();
 
-  const [manuallyLocked, setManuallyLocked] = useState<boolean>(false);
-  const [verifiedUser, setVerifiedUser] = useState<VerifiedWarehouseUser | null>(() => {
-    if (role === 'master_admin') {
-      return {
-        id: user?.roleCode || DUMMY_MASTER.id,
-        nama: user?.name || DUMMY_MASTER.nama,
-        role: 'master_gudang',
-      };
-    }
-    if (role === 'admin' || role === 'master_helpdesk') {
-      return {
-        id: user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : DUMMY_ADMIN_GUDANG.id),
-        nama: user?.name || (role === 'master_helpdesk' ? 'Master Helpdesk' : 'Admin'),
-        role: 'admin_gudang',
-      };
-    }
-    return null;
-  });
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('input');
+  const [listFilter, setListFilter] = useState<PartListFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    if (manuallyLocked || verifiedUser) return;
-    if (role === 'master_admin') {
-      setVerifiedUser({
-        id: user?.roleCode || DUMMY_MASTER.id,
-        nama: user?.name || DUMMY_MASTER.nama,
-        role: 'master_gudang',
-      });
-    } else if (role === 'admin' || role === 'master_helpdesk') {
-      setVerifiedUser({
-        id: user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : DUMMY_ADMIN_GUDANG.id),
-        nama: user?.name || (role === 'master_helpdesk' ? 'Master Helpdesk' : 'Admin'),
-        role: 'admin_gudang',
-      });
-    }
-  }, [role, user?.roleCode, user?.name, verifiedUser, manuallyLocked]);
-  const [activeTab, setActiveTab] = useState<'katalog' | 'opname'>('katalog');
+  const [nama, setNama] = useState('');
+  const [jenis, setJenis] = useState<PartJenis>('reguler');
+  const [satuan, setSatuan] = useState('pcs');
+  const [stokAwal, setStokAwal] = useState('0');
+  const [stokMin, setStokMin] = useState('5');
+  const [hargaBeli, setHargaBeli] = useState('0');
+  const [hargaJual, setHargaJual] = useState('0');
+  const [catatan, setCatatan] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const isMasterGudang = verifiedUser?.role === 'master_gudang';
+  const [editPartTarget, setEditPartTarget] = useState<Part | null>(null);
+  const [editNama, setEditNama] = useState('');
+  const [editSatuan, setEditSatuan] = useState('pcs');
+  const [editStok, setEditStok] = useState('0');
+  const [editStokMin, setEditStokMin] = useState('1');
+  const [editHargaBeli, setEditHargaBeli] = useState('0');
+  const [editHargaJual, setEditHargaJual] = useState('0');
+  const [editNote, setEditNote] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
 
-  // Action bar state
-  const [filterKey, setFilterKey] = useState<MasterFilterKey>('all');
-  const [searchOpen, setSearchOpen] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Part | null>(null);
+  const [historyPartTarget, setHistoryPartTarget] = useState<Part | null>(null);
 
-  // Selected part & Edit flow
-  const [selectedPartCode, setSelectedPartCode] = useState<string | null>(null);
-  const [editGateOpen, setEditGateOpen] = useState<boolean>(false);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [verifiedAdmin, setVerifiedAdmin] = useState<{ nama: string; id: string } | null>(
-    null
-  );
+  if (role === 'admin') {
+    return <Navigate to="/admin/v2/warehouse" replace />;
+  }
 
-  const [editNama, setEditNama] = useState<string>('');
-  const [editSatuan, setEditSatuan] = useState<PartSatuan>('pcs');
-  const [editHargaBeli, setEditHargaBeli] = useState<string>('0');
-  const [editHargaJual, setEditHargaJual] = useState<string>('0');
-  const [editStokMin, setEditStokMin] = useState<string>('1');
-  const [editNote, setEditNote] = useState<string>('');
-  const [editError, setEditError] = useState<string>('');
-  const [highlightedHistoryIds, setHighlightedHistoryIds] = useState<Set<string>>(
-    new Set()
-  );
-  const historySectionRef = useRef<HTMLDivElement>(null);
+  const actorName =
+    user?.name ||
+    user?.email ||
+    (role === 'master_helpdesk' ? 'Master Helpdesk' : 'Master Admin');
+  const actorId = user?.roleCode || (role === 'master_helpdesk' ? 'HD-001' : 'MG-001');
+  const auditRole = role === 'master_helpdesk' ? 'master_helpdesk' : 'master_admin';
 
-  // New part ("Part baru") side panel
-  const [newPartOpen, setNewPartOpen] = useState<boolean>(false);
-  const [newNama, setNewNama] = useState<string>('');
-  const [newSatuan, setNewSatuan] = useState<PartSatuan>('pcs');
-  const [newJenis, setNewJenis] = useState<'reguler' | 'ho'>('reguler');
-  const [newStokAwal, setNewStokAwal] = useState<string>('0');
-  const [newHargaBeli, setNewHargaBeli] = useState<string>('0');
-  const [newHargaJual, setNewHargaJual] = useState<string>('0');
-  const [newStokMin, setNewStokMin] = useState<string>('1');
-  const [newCatatan, setNewCatatan] = useState<string>('');
-  const [newErrors, setNewErrors] = useState<Record<string, string>>({});
-
-  const [flashPartCode, setFlashPartCode] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (searchOpen) {
-      const id = window.setTimeout(() => searchInputRef.current?.focus(), 20);
-      return () => window.clearTimeout(id);
-    }
-  }, [searchOpen]);
-
-  const triggerFlashRow = (code: string) => {
-    setFlashPartCode(code);
-    window.setTimeout(() => {
-      setFlashPartCode((cur) => (cur === code ? null : cur));
-    }, 800);
+  const stockOpnameActor: VerifiedWarehouseUser = {
+    id: actorId,
+    nama: actorName,
+    email: user?.email || (role === 'master_helpdesk' ? 'helpdesk@mybengkel.com' : 'masteradmin@mybengkel.com'),
+    role: 'master_gudang',
   };
 
-  const selectedPart = useMemo(
-    () =>
-      parts.find((p) => p.kode === selectedPartCode || p.id === selectedPartCode) ?? null,
-    [parts, selectedPartCode]
-  );
+  const nextKodePreview = getNextPartCode();
 
-  const selectedPartHistory = useMemo(() => {
-    if (!selectedPart) return [];
-    return partChanges.filter(
-      (h) => h.partId === selectedPart.id || h.partId === selectedPart.kode
-    );
-  }, [selectedPart, partChanges]);
+  const partRows = useMemo(() => {
+    return parts.map((p) => {
+      const stok = computeStock(p, stockMovements);
+      const critical = p.jenis === 'reguler' && stok <= (p.stokMin ?? 0);
+      return { part: p, stok, critical };
+    });
+  }, [parts, stockMovements]);
+
+  const totalCount = partRows.length;
+  const lowCount = useMemo(() => partRows.filter((r) => r.critical).length, [partRows]);
+  const regulerCount = useMemo(() => partRows.filter((r) => r.part.jenis === 'reguler').length, [partRows]);
+  const hoCount = useMemo(() => partRows.filter((r) => r.part.jenis === 'ho').length, [partRows]);
 
   const filteredParts = useMemo(() => {
-    let base = parts;
-    if (filterKey === 'low') {
-      base = base.filter(
-        (p) =>
-          p.jenis === 'reguler' &&
-          p.stokMin !== null &&
-          computeStock(p, stockMovements) < p.stokMin
-      );
-    } else if (filterKey === 'ho_fulfilled') {
-      base = base.filter(
-        (p) => p.jenis === 'ho' && hasReceivedLineForPart(p, purchaseRequests)
-      );
-    }
-
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter(
-      (p) =>
-        p.kode.toLowerCase().includes(q) || p.nama.toLowerCase().includes(q)
-    );
-  }, [parts, filterKey, searchQuery, stockMovements, purchaseRequests]);
+    return partRows
+      .filter((r) => {
+        if (listFilter === 'low' && !r.critical) return false;
+        if (listFilter === 'reguler' && r.part.jenis !== 'reguler') return false;
+        if (listFilter === 'ho' && r.part.jenis !== 'ho') return false;
+        if (!q) return true;
+        return (
+          r.part.kode.toLowerCase().includes(q) ||
+          r.part.nama.toLowerCase().includes(q) ||
+          r.part.satuan.toLowerCase().includes(q)
+        );
+      })
+      .map((r) => r.part);
+  }, [partRows, listFilter, searchQuery]);
 
-  const getPartStatusLabel = (p: Part): 'Kritis' | 'Aman' | 'HO' => {
-    if (p.jenis === 'ho') return 'HO';
-    const stk = computeStock(p, stockMovements);
-    return p.stokMin !== null && stk < p.stokMin ? 'Kritis' : 'Aman';
-  };
+  const selectedHistoryRows = useMemo(() => {
+    if (!historyPartTarget) return [];
+    return partHistory.filter((h) => h.partId === historyPartTarget.kode);
+  }, [historyPartTarget, partHistory]);
 
-  const handleCloseEntryGate = () => {
-    if (typeof window !== 'undefined' && window.history.length > 2) {
-      navigate(-1);
-    } else {
-      navigate('/admin');
-    }
-  };
+  const handleCreatePart = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
 
-  const openPartDetail = (part: Part) => {
-    setSelectedPartCode(part.kode);
-    setIsEditing(false);
-    setVerifiedAdmin(null);
-    setEditError('');
-    setHighlightedHistoryIds(new Set());
-  };
+    const parsedStokAwal = Number(stokAwal);
+    const parsedHargaBeli = Number(hargaBeli);
+    const parsedHargaJual = Number(hargaJual);
+    const parsedStokMin = jenis === 'ho' ? null : Number(stokMin);
 
-  const beginEditAfterGate = (adminNama: string, adminId: string) => {
-    if (!selectedPart) return;
-    setVerifiedAdmin({ nama: adminNama, id: adminId });
-    setEditNama(selectedPart.nama);
-    setEditSatuan(selectedPart.satuan);
-    setEditHargaBeli(String(selectedPart.hargaBeli));
-    setEditHargaJual(String(selectedPart.hargaJual));
-    setEditStokMin(String(selectedPart.stokMin ?? 1));
-    setEditNote('');
-    setEditError('');
-    setIsEditing(true);
-    setEditGateOpen(false);
-  };
-
-  const handleSaveEdit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!selectedPart || !verifiedAdmin) return;
-
-    const trimmedNama = editNama.trim();
-    if (!trimmedNama) {
-      setEditError('Nama part wajib diisi.');
+    if (Number.isNaN(parsedStokAwal) || parsedStokAwal < 0) {
+      setFormError('Stok awal harus bernilai 0 atau lebih.');
       return;
     }
-
-    const clash = parts.find(
-      (p) =>
-        p.id !== selectedPart.id &&
-        p.nama.trim().toLowerCase() === trimmedNama.toLowerCase()
-    );
-    if (clash) {
-      setEditError(`Nama part sudah ada: ${clash.kode}.`);
+    if (
+      Number.isNaN(parsedHargaBeli) ||
+      parsedHargaBeli < 0 ||
+      Number.isNaN(parsedHargaJual) ||
+      parsedHargaJual < 0
+    ) {
+      setFormError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
       return;
     }
-
-    const numBeli = Number(editHargaBeli);
-    const numJual = Number(editHargaJual);
-    if (Number.isNaN(numBeli) || numBeli < 0) {
-      setEditError('Harga Beli minimal Rp 0.');
-      return;
-    }
-    if (Number.isNaN(numJual) || numJual < 0) {
-      setEditError('Harga Jual minimal Rp 0.');
-      return;
-    }
-
-    const numStokMin =
-      selectedPart.jenis === 'reguler'
-        ? Math.max(0, Math.floor(Number(editStokMin) || 0))
-        : null;
-
-    if (editNote.trim().length < 5) {
-      setEditError('Catatan penyesuaian wajib diisi minimal 5 karakter.');
-      return;
-    }
-
-    const res = editMasterPart({
-      partId: selectedPart.id,
-      nama: trimmedNama,
-      satuan: editSatuan,
-      hargaBeli: numBeli,
-      hargaJual: numJual,
-      stokMin: numStokMin,
-      note: editNote.trim(),
-      byNama: verifiedAdmin.nama,
-      byId: verifiedAdmin.id,
-    });
-
-    if (!res.ok) {
-      setEditError(res.error || 'Tidak ada perubahan.');
-      return;
-    }
-
-    // Leave edit mode (pass covers one edit only), highlight new history rows, scroll to Riwayat edit
-    setIsEditing(false);
-    setVerifiedAdmin(null);
-    setEditError('');
-
-    const newIds = new Set<string>(res.newHistoryIds || []);
-    setHighlightedHistoryIds(newIds);
-    triggerFlashRow(selectedPart.kode);
-
-    window.setTimeout(() => {
-      historySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 60);
-
-    window.setTimeout(() => {
-      setHighlightedHistoryIds(new Set());
-    }, 1500);
-  };
-
-  const openNewPartPanel = (trigger: HTMLElement) => {
-    setLastTriggerElement(trigger);
-    setNewNama('');
-    setNewSatuan('pcs');
-    setNewJenis('reguler');
-    setNewStokAwal('0');
-    setNewHargaBeli('0');
-    setNewHargaJual('0');
-    setNewStokMin('1');
-    setNewCatatan('');
-    setNewErrors({});
-    setNewPartOpen(true);
-  };
-
-  const handleSaveNewPart = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const errs: Record<string, string> = {};
-
-    const trimmedNama = newNama.trim();
-    if (!trimmedNama) {
-      errs.nama = 'Nama part wajib diisi.';
-    } else {
-      const clash = parts.find(
-        (p) => p.nama.trim().toLowerCase() === trimmedNama.toLowerCase()
-      );
-      if (clash) {
-        errs.nama = `Nama part sudah ada: ${clash.kode}.`;
-      }
-    }
-
-    const stkAwal = Number(newStokAwal);
-    if (!Number.isInteger(stkAwal) || stkAwal < 0) {
-      errs.stokAwal = 'Stok awal harus bilangan bulat minimal 0.';
-    }
-
-    const hBeli = Number(newHargaBeli);
-    if (Number.isNaN(hBeli) || hBeli < 0) {
-      errs.hargaBeli = 'Harga beli minimal Rp 0.';
-    }
-
-    const hJual = Number(newHargaJual);
-    if (Number.isNaN(hJual) || hJual < 0) {
-      errs.hargaJual = 'Harga jual minimal Rp 0.';
-    }
-
-    if (newJenis === 'reguler') {
-      const sMin = Number(newStokMin);
-      if (!Number.isInteger(sMin) || sMin < 0) {
-        errs.stokMin = 'Stok minimum harus bilangan bulat minimal 0.';
-      }
-    }
-
-    if (Object.keys(errs).length > 0) {
-      setNewErrors(errs);
+    if (jenis === 'reguler' && (parsedStokMin === null || Number.isNaN(parsedStokMin) || parsedStokMin < 0)) {
+      setFormError('Stok minimum untuk part reguler minimal 0.');
       return;
     }
 
     const res = createMasterPart({
-      nama: trimmedNama,
-      satuan: newSatuan,
-      jenis: newJenis,
-      stokAwal: Math.floor(stkAwal),
-      hargaBeli: hBeli,
-      hargaJual: hJual,
-      stokMin: newJenis === 'reguler' ? Math.floor(Number(newStokMin) || 1) : null,
-      catatan: newCatatan.trim(),
+      nama,
+      jenis,
+      satuan,
+      stokAwal: parsedStokAwal,
+      stokMin: parsedStokMin,
+      hargaBeli: parsedHargaBeli,
+      hargaJual: parsedHargaJual,
+      catatan,
+      byNama: actorName,
+      byId: actorId,
+      actorRole: role || undefined,
     });
 
     if (!res.ok || !res.part) {
-      setNewErrors({ nama: res.error || 'Periksa kembali data part baru.' });
+      setFormError(res.error || 'Gagal menyimpan data part baru.');
       return;
     }
 
-    setNewPartOpen(false);
-    triggerFlashRow(res.part.kode);
-    notify(`Part ${res.part.kode} ditambahkan.`);
+    recordAuditEvent({
+      actorId,
+      actorName,
+      actorRole: auditRole,
+      event: 'part_created',
+      category: 'bisnis',
+      module: 'gudang',
+      action: `Menambahkan part baru ${res.part.kode} (${res.part.nama})`,
+      entityType: 'Part',
+      entityId: res.part.kode,
+      outcome: 'berhasil',
+    });
+
+    notify(`Part ${res.part.kode} (${res.part.nama}) berhasil ditambahkan.`);
+    setNama('');
+    setStokAwal('0');
+    setStokMin('5');
+    setHargaBeli('0');
+    setHargaJual('0');
+    setCatatan('');
   };
 
-  // Columns in exact order:
-  // Kode Part, Nama Part, Satuan, Stok, Harga Beli, Stok Minimum, Harga Jual, Jenis, Status, Tanggal Pemesanan, Tanggal Terima
+  const openEditPanel = (part: Part) => {
+    const currentStok = computeStock(part, stockMovements);
+    setEditPartTarget(part);
+    setEditNama(part.nama);
+    setEditSatuan(part.satuan || 'pcs');
+    setEditStok(String(currentStok));
+    setEditStokMin(String(part.stokMin ?? 1));
+    setEditHargaBeli(String(part.hargaBeli ?? 0));
+    setEditHargaJual(String(part.hargaJual ?? 0));
+    setEditNote('');
+    setEditError(null);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPartTarget) return;
+    setEditError(null);
+
+    const parsedStok = Number(editStok);
+    const parsedBeli = Number(editHargaBeli);
+    const parsedJual = Number(editHargaJual);
+    const parsedMin = editPartTarget.jenis === 'ho' ? null : Number(editStokMin);
+
+    if (Number.isNaN(parsedStok) || parsedStok < 0) {
+      setEditError('Stok tidak boleh kurang dari 0.');
+      return;
+    }
+    if (Number.isNaN(parsedBeli) || parsedBeli < 0 || Number.isNaN(parsedJual) || parsedJual < 0) {
+      setEditError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
+      return;
+    }
+    if (editPartTarget.jenis === 'reguler' && (parsedMin === null || Number.isNaN(parsedMin) || parsedMin < 0)) {
+      setEditError('Stok minimum wajib diisi (minimal 0).');
+      return;
+    }
+
+    const res = editMasterPart({
+      partId: editPartTarget.kode,
+      nama: editNama,
+      satuan: editSatuan,
+      stokBaru: parsedStok,
+      hargaBeli: parsedBeli,
+      hargaJual: parsedJual,
+      stokMin: parsedMin,
+      note: editNote,
+      byNama: actorName,
+      byId: actorId,
+      actorRole: role || undefined,
+    });
+
+    if (!res.ok) {
+      setEditError(res.error || 'Gagal memperbarui data part.');
+      return;
+    }
+
+    recordAuditEvent({
+      actorId,
+      actorName,
+      actorRole: auditRole,
+      event: 'part_updated',
+      category: 'bisnis',
+      module: 'gudang',
+      action: `Mengubah data part ${editPartTarget.kode} (${editNama.trim()})`,
+      entityType: 'Part',
+      entityId: editPartTarget.kode,
+      reason: editNote.trim(),
+      outcome: 'berhasil',
+    });
+
+    notify(`Part ${editPartTarget.kode} berhasil diperbarui.`);
+    setEditPartTarget(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+    const res = deleteMasterPart({
+      partId: deleteTarget.kode,
+      byNama: actorName,
+      byId: actorId,
+      actorRole: role || undefined,
+    });
+
+    if (!res.ok) {
+      notify(res.error || 'Gagal menghapus part.');
+      setDeleteTarget(null);
+      return;
+    }
+
+    recordAuditEvent({
+      actorId,
+      actorName,
+      actorRole: auditRole,
+      event: 'part_deleted',
+      category: 'bisnis',
+      module: 'gudang',
+      action: `Menghapus part ${deleteTarget.kode} (${deleteTarget.nama})`,
+      entityType: 'Part',
+      entityId: deleteTarget.kode,
+      outcome: 'berhasil',
+    });
+
+    notify(`Part ${deleteTarget.kode} berhasil dihapus.`);
+    setDeleteTarget(null);
+  };
+
   const columns: Column<Part>[] = [
     {
       key: 'kode',
       header: 'Kode Part',
-      render: (p) => <samp className="font-mono font-semibold text-[#1E2230]">{p.kode}</samp>,
+      identity: true,
+      render: (p) => <span className="font-mono text-[13px] font-semibold text-[#1E2230]">{p.kode}</span>,
     },
     {
       key: 'nama',
       header: 'Nama Part',
-      render: (p) => <span className="font-medium text-[#1E2230]">{p.nama}</span>,
-    },
-    { key: 'satuan', header: 'Satuan' },
-    {
-      key: 'stok',
-      header: 'Stok',
-      align: 'right',
-      render: (p) => {
-        const stk = computeStock(p, stockMovements);
-        return (
-          <data value={stk} className="tabular-nums font-semibold">
-            {stk}
-          </data>
-        );
-      },
-    },
-    {
-      key: 'hargaBeli',
-      header: 'Harga Beli',
-      align: 'right',
       render: (p) => (
-        <data value={p.hargaBeli} className="tabular-nums font-medium">
-          {formatRupiah(p.hargaBeli)}
-        </data>
-      ),
-    },
-    {
-      key: 'stokMin',
-      header: 'Stok Minimum',
-      align: 'right',
-      render: (p) =>
-        p.jenis === 'ho' ? (
-          <span className="text-[13px] text-[#646B7C]">Tidak berlaku</span>
-        ) : (
-          <data value={p.stokMin ?? 1} className="tabular-nums font-medium">
-            {p.stokMin ?? 1}
-          </data>
-        ),
-    },
-    {
-      key: 'hargaJual',
-      header: 'Harga Jual',
-      align: 'right',
-      render: (p) => (
-        <data value={p.hargaJual} className="tabular-nums font-medium">
-          {formatRupiah(p.hargaJual)}
-        </data>
+        <div>
+          <div className="font-medium text-[#1E2230]">{p.nama}</div>
+          <div className="text-[12px] text-[#646B7C]">Dibuat: {p.createdAt || '-'}</div>
+        </div>
       ),
     },
     {
       key: 'jenis',
       header: 'Jenis',
-      render: (p) => <StatusChip status={p.jenis === 'ho' ? 'HO' : 'Reguler'} />,
+      isStatus: true,
+      render: (p) => <StatusChip status={p.jenis} />,
+    },
+    {
+      key: 'stok',
+      header: 'Stok',
+      align: 'right',
+      render: (p) => {
+        const stok = computeStock(p, stockMovements);
+        return (
+          <span className="font-semibold tabular-nums text-[#1E2230]">
+            {stok} {p.satuan}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'stokMin',
+      header: 'Min. Stok',
+      align: 'right',
+      mobileHidden: true,
+      render: (p) => (
+        <span className="tabular-nums text-[#646B7C]">
+          {p.jenis === 'ho' ? 'HO' : `${p.stokMin ?? 0} ${p.satuan}`}
+        </span>
+      ),
+    },
+    {
+      key: 'hargaJual',
+      header: 'Harga Beli / Jual',
+      align: 'right',
+      mobileHidden: true,
+      render: (p) => (
+        <div className="text-right tabular-nums">
+          <div className="text-[12px] text-[#646B7C]">Beli: {formatRupiah(p.hargaBeli)}</div>
+          <div className="font-medium text-[#1E2230]">Jual: {formatRupiah(p.hargaJual)}</div>
+        </div>
+      ),
     },
     {
       key: 'status',
       header: 'Status',
-      render: (p) => <StatusChip status={getPartStatusLabel(p)} />,
-    },
-    {
-      key: 'tanggalPemesanan',
-      header: 'Tanggal Pemesanan',
+      isStatus: true,
       render: (p) => {
-        const dates = computePartRequestDates(p, purchaseRequests);
-        return (
-          <span className="font-mono text-[13px] text-[#646B7C]">
-            {dates.latestRequestDate}
-          </span>
-        );
+        const stok = computeStock(p, stockMovements);
+        const critical = p.jenis === 'reguler' && stok <= (p.stokMin ?? 0);
+        return <StatusChip status={critical ? 'Kritis' : 'Aman'} needsAction={critical} />;
       },
     },
     {
-      key: 'tanggalTerima',
-      header: 'Tanggal Terima',
-      render: (p) => {
-        const dates = computePartRequestDates(p, purchaseRequests);
-        return (
-          <span className="font-mono text-[13px] text-[#646B7C]">
-            {dates.latestReceivedDate}
-          </span>
-        );
-      },
+      key: 'aksi',
+      header: 'Aksi',
+      align: 'right',
+      render: (p) => (
+        <div
+          className="inline-flex items-center justify-end gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ActionButton
+            intent="neutral"
+            onClick={() => setHistoryPartTarget(p)}
+          >
+            Riwayat
+          </ActionButton>
+          <ActionButton
+            intent="wait"
+            icon={<PencilIcon size={15} />}
+            onClick={() => openEditPanel(p)}
+          >
+            Edit Part
+          </ActionButton>
+          <ActionButton
+            intent="cancel"
+            icon={<TrashIcon size={15} />}
+            onClick={() => setDeleteTarget(p)}
+          >
+            Hapus Part
+          </ActionButton>
+        </div>
+      ),
     },
   ];
 
-  const isNewJualBelowBeli =
-    Number(newHargaJual) >= 0 &&
-    Number(newHargaBeli) > 0 &&
-    Number(newHargaJual) < Number(newHargaBeli);
-
-  const isEditJualBelowBeli =
-    Number(editHargaJual) >= 0 &&
-    Number(editHargaBeli) > 0 &&
-    Number(editHargaJual) < Number(editHargaBeli);
-
   return (
-    <>
-      {/* Entry Gate on every visit */}
-      <CredentialGate
-        isOpen={!verifiedUser}
-        title="Verifikasi Gudang"
-        subtitle="Masukkan kredensial akun gudang terbaru untuk mengakses halaman ini"
-        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Akun Anda (misal MG-001 untuk Master Gudang atau AD-001 untuk Admin), Password Terbaru, dan PIN 5 Angka (5 digit terakhir PIN 12 digit dalam urutan terbalik)."
-        fields={ENTRY_GATE_FIELDS}
-        submitLabel="Masuk"
-        errorMessage="Data verifikasi akses gudang tidak cocok."
-        onClose={handleCloseEntryGate}
-        onVerify={async (vals) => {
-          const res = await verifyWarehouseAccessAsync(vals);
-          return {
-            ok: res.ok,
-            error: res.error,
-            data: res.user,
-          };
-        }}
-        onPass={(_vals, data) => {
-          const verified = data as VerifiedWarehouseUser | undefined;
-          if (verified) {
-            setManuallyLocked(false);
-            setVerifiedUser(verified);
-          }
-        }}
+    <div className="space-y-6">
+      <PageHeader
+        title="Input Part"
+        decision="Tambahkan sparepart baru, perbarui harga dan stok gudang, atau jalankan sesi stok opname secara langsung."
       />
 
-      {verifiedUser && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-[16px] bg-white border border-[#EEF0F4] shadow-sm">
-            <FilterTabs
-              tabs={
-                isMasterGudang
-                  ? WAREHOUSE_TABS
-                  : WAREHOUSE_TABS.filter((t) => t.value !== 'opname')
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <FilterTabs
+          ariaLabel="Mode pengelolaan Input Part"
+          value={workspaceTab}
+          onChange={(v) => setWorkspaceTab((v === 'opname' ? 'opname' : 'input') as WorkspaceTab)}
+          tabs={[
+            { value: 'input', label: 'Input & Kelola Part', count: totalCount },
+            { value: 'opname', label: 'Stok Opname' },
+          ]}
+        />
+        <span className="inline-flex items-center px-3 py-1.5 rounded-[10px] bg-[#F6F7FA] border border-[#E6E9F0] text-[12px] text-[#454D5F]">
+          Operator aktif: <strong className="ml-1 text-[#1E2230]">{actorName}</strong>
+        </span>
+      </div>
+
+      {workspaceTab === 'opname' ? (
+        <StockOpnameWorkspace verifiedUser={stockOpnameActor} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              to="/admin/v2/warehouse"
+              value={totalCount}
+              label="Total Item Part"
+              color="#3DA5F5"
+              bgTint="rgba(61, 165, 245, 0.14)"
+              icon={
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2.5L3 6V14L10 17.5L17 14V6L10 2.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                </svg>
               }
-              value={activeTab}
-              onChange={(v) => setActiveTab(v as 'katalog' | 'opname')}
-              ariaLabel="Navigasi Gudang"
             />
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-[12px] bg-[#F6F7FA] border border-[#EEF0F4] text-[13px]">
-                <span className="text-[#646B7C]">Peran:</span>
-                <span
-                  className={`px-2 py-0.5 rounded-[8px] font-semibold text-[12px] ${
-                    isMasterGudang
-                      ? 'bg-[#EBF5FB] text-[#1D6FC4]'
-                      : 'bg-[#E8F8F0] text-[#1B8354]'
-                  }`}
-                >
-                  {isMasterGudang ? 'Master Gudang' : 'Admin Gudang'}
-                </span>
-                <span className="font-medium text-[#1E2230]">{verifiedUser.nama}</span>
-                <samp className="px-1.5 py-0.5 rounded bg-white border border-[#EEF0F4] font-mono text-[11px] font-semibold text-[#1E2230]">
-                  ID: {verifiedUser.id}
-                </samp>
-              </div>
-
-              <ActionButton
-                type="button"
-                intent="cancel"
-                onClick={() => {
-                  setManuallyLocked(true);
-                  setVerifiedUser(null);
-                  setSelectedPartCode(null);
-                  setIsEditing(false);
-                }}
-              >
-                Kunci / Keluar
-              </ActionButton>
-            </div>
+            <KpiCard
+              to="/admin/v2/warehouse?filter=low"
+              value={lowCount}
+              label="Stok Kritis"
+              color="#D62E5A"
+              bgTint="rgba(242, 70, 111, 0.14)"
+              icon={
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 3.5L17.5 16.5H2.5L10 3.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  <path d="M10 8.5V12M10 14.2H10.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              }
+            />
+            <KpiCard
+              to="/admin/v2/warehouse"
+              value={regulerCount}
+              label="Part Reguler"
+              color="#1F9D3A"
+              bgTint="rgba(92, 196, 106, 0.14)"
+              icon={
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                  <rect x="3.5" y="4.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                </svg>
+              }
+            />
+            <KpiCard
+              to="/admin/v2/warehouse"
+              value={hoCount}
+              label="Part Jenis HO"
+              color="#B77700"
+              bgTint="rgba(255, 189, 89, 0.18)"
+              icon={
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+                  <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+                </svg>
+              }
+            />
           </div>
 
-          {activeTab === 'katalog' ? (
-            <DataCard
-              title="Master Gudang"
-              actions={
-                <div className="flex flex-wrap items-center gap-2">
-                  <ExpandableSearch
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder="Kode atau nama part..."
-                    ariaLabel="Cari part"
-                  />
-
-                  <FilterMenu
-                    value={filterKey}
-                    defaultValue="all"
-                    options={MASTER_FILTER_OPTIONS}
-                    onChange={(v) => setFilterKey(v as MasterFilterKey)}
-                    ariaLabel="Filter Master Gudang"
-                  />
-
-                  {isMasterGudang && (
-                    <PlusIconButton
-                      ariaLabel="Tambah part baru"
-                      title="Tambah part baru"
-                      onClick={(e) => openNewPartPanel(e.currentTarget)}
-                    />
-                  )}
-                </div>
-              }
-            >
-          {parts.length === 0 ? (
-            <div className="py-8 px-4 text-center rounded-[12px] bg-[#F6F7FA]">
-              <p className="text-[14px] text-[#646B7C]">
-                Belum ada part. Tambahkan dengan tombol +.
-              </p>
-            </div>
-          ) : filteredParts.length === 0 ? (
-            <div className="py-8 px-4 text-center rounded-[12px] bg-[#F6F7FA] space-y-2">
-              <p className="text-[14px] text-[#646B7C]">
-                Tidak ada part untuk filter ini.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterKey('all');
-                  setSearchQuery('');
-                }}
-                className="font-sans text-[13px] font-semibold text-[#1D6FC4] underline underline-offset-2"
-              >
-                Hapus filter
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Desktop Table */}
-              <div className="hidden md:block">
-                <DataTable
-                  columns={columns}
-                  data={filteredParts}
-                  keyExtractor={(p) => p.kode}
-                  onRowClick={openPartDetail}
-                  flashKey={flashPartCode}
-                  swapKey={`master-${filterKey}-${searchQuery}`}
-                />
-              </div>
-
-              {/* Mobile Stacked Blocks (same fields in the exact same order) */}
-              <div className="md:hidden space-y-3">
-                {filteredParts.map((p) => {
-                  const stk = computeStock(p, stockMovements);
-                  const statusLabel = getPartStatusLabel(p);
-                  const dates = computePartRequestDates(p, purchaseRequests);
-                  return (
-                    <div
-                      key={p.kode}
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => {
-                        setLastTriggerElement(e.currentTarget);
-                        openPartDetail(p);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setLastTriggerElement(e.currentTarget);
-                          openPartDetail(p);
-                        }
-                      }}
-                      className={`p-4 rounded-[16px] border border-[#EEF0F4] bg-white space-y-2 text-[13px] cursor-pointer hover:bg-[#F6F7FA] ${
-                        flashPartCode === p.kode ? 'admin-row-flash' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Kode Part</span>
-                        <samp className="font-mono font-semibold text-[#1E2230]">{p.kode}</samp>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Nama Part</span>
-                        <span className="font-medium text-[#1E2230]">{p.nama}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Satuan</span>
-                        <span>{p.satuan}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Stok</span>
-                        <data value={stk} className="font-mono font-semibold tabular-nums">
-                          {stk}
-                        </data>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Harga Beli</span>
-                        <data value={p.hargaBeli} className="font-mono tabular-nums">
-                          {formatRupiah(p.hargaBeli)}
-                        </data>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Stok Minimum</span>
-                        <span>
-                          {p.jenis === 'ho' ? 'Tidak berlaku' : p.stokMin ?? 1}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Harga Jual</span>
-                        <data value={p.hargaJual} className="font-mono tabular-nums">
-                          {formatRupiah(p.hargaJual)}
-                        </data>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Jenis</span>
-                        <StatusChip status={p.jenis === 'ho' ? 'HO' : 'Reguler'} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Status</span>
-                        <StatusChip status={statusLabel} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Tanggal Pemesanan</span>
-                        <span className="font-mono text-[#646B7C]">{dates.latestRequestDate}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#646B7C]">Tanggal Terima</span>
-                        <span className="font-mono text-[#646B7C]">{dates.latestReceivedDate}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </DataCard>
-          ) : (
-            <StockOpnameWorkspace verifiedUser={verifiedUser} />
-          )}
-        </div>
-      )}
-
-      {/* Part Detail & Edit SidePanel */}
-      <SidePanel
-        isOpen={Boolean(selectedPart)}
-        onClose={() => {
-          setSelectedPartCode(null);
-          setIsEditing(false);
-          setVerifiedAdmin(null);
-        }}
-        title={
-          selectedPart ? `${selectedPart.kode} · ${selectedPart.nama}` : 'Detail Part'
-        }
-        widthClass="max-w-[600px]"
-        footer={
-          isEditing ? (
-            <>
-              <ActionButton
-                type="button"
-                intent="cancel"
-                onClick={() => {
-                  setIsEditing(false);
-                  setVerifiedAdmin(null);
-                  setEditError('');
-                }}
-              >
-                Batal edit
-              </ActionButton>
-              <ActionButton
-                type="button"
-                intent="start"
-                onClick={() => handleSaveEdit()}
-              >
-                Simpan perubahan
-              </ActionButton>
-            </>
-          ) : (
-            <>
-              <ActionButton
-                type="button"
-                intent="cancel"
-                onClick={() => setSelectedPartCode(null)}
-              >
-                Tutup
-              </ActionButton>
-              {isMasterGudang && (
-                <ActionButton
-                  type="button"
-                  intent="neutral"
-                  onClick={(e) => {
-                    setLastTriggerElement(e.currentTarget);
-                    if (verifiedUser) {
-                      beginEditAfterGate(verifiedUser.nama, verifiedUser.id);
-                    }
-                  }}
-                >
-                  Edit
-                </ActionButton>
-              )}
-            </>
-          )
-        }
-      >
-        {selectedPart && (
-          <div className="space-y-6">
-            {/* Definition List with all 11 table fields + Dibuat pada */}
-            {(() => {
-              const stk = computeStock(selectedPart, stockMovements);
-              const statusLabel = getPartStatusLabel(selectedPart);
-              const dates = computePartRequestDates(selectedPart, purchaseRequests);
-              return (
-                <dl className="grid grid-cols-2 gap-3 p-4 rounded-[12px] bg-[#F6F7FA] text-[13px]">
-                  <div>
-                    <dt className="text-[#646B7C]">Kode Part</dt>
-                    <dd className="font-mono font-semibold text-[#1E2230] mt-0.5">
-                      {selectedPart.kode}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Nama Part</dt>
-                    <dd className="font-medium text-[#1E2230] mt-0.5">
-                      {selectedPart.nama}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Satuan</dt>
-                    <dd className="font-medium text-[#1E2230] mt-0.5">
-                      {selectedPart.satuan}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Stok</dt>
-                    <dd className="font-mono font-bold text-[16px] text-[#1E2230] mt-0.5 tabular-nums">
-                      {stk}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Harga Beli</dt>
-                    <dd className="font-mono font-medium text-[#1E2230] mt-0.5 tabular-nums">
-                      {formatRupiah(selectedPart.hargaBeli)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Stok Minimum</dt>
-                    <dd className="font-mono text-[#1E2230] mt-0.5 tabular-nums">
-                      {selectedPart.jenis === 'ho'
-                        ? 'Tidak berlaku'
-                        : selectedPart.stokMin ?? 1}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Harga Jual</dt>
-                    <dd className="font-mono font-medium text-[#1E2230] mt-0.5 tabular-nums">
-                      {formatRupiah(selectedPart.hargaJual)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Jenis</dt>
-                    <dd className="mt-1">
-                      <StatusChip
-                        status={selectedPart.jenis === 'ho' ? 'HO' : 'Reguler'}
-                      />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Status</dt>
-                    <dd className="mt-1">
-                      <StatusChip status={statusLabel} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Tanggal Pemesanan</dt>
-                    <dd className="font-mono text-[#1E2230] mt-0.5">
-                      {dates.latestRequestDate}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Tanggal Terima</dt>
-                    <dd className="font-mono text-[#1E2230] mt-0.5">
-                      {dates.latestReceivedDate}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[#646B7C]">Dibuat pada</dt>
-                    <dd className="font-mono text-[#1E2230] mt-0.5">
-                      {selectedPart.createdAt}
-                    </dd>
-                  </div>
-                </dl>
-              );
-            })()}
-
-            {/* Edit Form (only shown after passing Admin CredentialGate) */}
-            {isEditing && (
-              <form
-                onSubmit={handleSaveEdit}
-                noValidate
-                className="p-4 rounded-[12px] border border-[#EEF0F4] space-y-4"
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[14px] font-semibold text-[#1E2230]">
-                    Edit data part
-                  </h3>
-                  <span className="text-[12px] text-[#646B7C]">
-                    Kode, Stok, dan Jenis tidak dapat diubah
-                  </span>
-                </div>
-
-                <FormField id="edit-part-nama" label="Nama part">
+          <DataCard title="Input Part Baru">
+            <form onSubmit={handleCreatePart} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField id="new-kode" label="Kode Part (Otomatis)">
                   <input
-                    id="edit-part-nama"
+                    id="new-kode"
                     type="text"
-                    value={editNama}
-                    onChange={(e) => {
-                      setEditNama(e.target.value);
-                      if (editError) setEditError('');
-                    }}
-                    className="admin-input"
+                    readOnly
+                    value={nextKodePreview}
+                    className="admin-input h-10 bg-[#F6F7FA] font-mono text-[#646B7C]"
                   />
                 </FormField>
 
-                <FormField id="edit-part-satuan" label="Satuan">
+                <FormField id="new-nama" label="Nama Part">
+                  <input
+                    id="new-nama"
+                    type="text"
+                    value={nama}
+                    onChange={(e) => setNama(e.target.value)}
+                    placeholder="Contoh: Kampas Rem Depan Beat"
+                    className="admin-input h-10"
+                    required
+                  />
+                </FormField>
+
+                <FormField id="new-jenis" label="Jenis Part">
                   <select
-                    id="edit-part-satuan"
-                    value={editSatuan}
-                    onChange={(e) => {
-                      setEditSatuan(e.target.value as PartSatuan);
-                      if (editError) setEditError('');
-                    }}
-                    className="admin-input"
+                    id="new-jenis"
+                    value={jenis}
+                    onChange={(e) => setJenis(e.target.value === 'ho' ? 'ho' : 'reguler')}
+                    className="admin-input h-10"
                   >
-                    {SATUAN_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
+                    <option value="reguler">Reguler</option>
+                    <option value="ho">HO (Heavy / Khusus)</option>
+                  </select>
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <FormField id="new-satuan" label="Satuan">
+                  <select
+                    id="new-satuan"
+                    value={satuan}
+                    onChange={(e) => setSatuan(e.target.value)}
+                    className="admin-input h-10"
+                  >
+                    {SATUAN_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
                       </option>
                     ))}
                   </select>
                 </FormField>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <FormField id="edit-part-beli" label="Harga Beli (Rp)">
-                    <input
-                      id="edit-part-beli"
-                      type="number"
-                      min={0}
-                      step={500}
-                      value={editHargaBeli}
-                      onChange={(e) => {
-                        setEditHargaBeli(e.target.value);
-                        if (editError) setEditError('');
-                      }}
-                      className="admin-input tabular-nums"
-                    />
-                  </FormField>
-
-                  <FormField id="edit-part-jual" label="Harga Jual (Rp)">
-                    <input
-                      id="edit-part-jual"
-                      type="number"
-                      min={0}
-                      step={500}
-                      value={editHargaJual}
-                      onChange={(e) => {
-                        setEditHargaJual(e.target.value);
-                        if (editError) setEditError('');
-                      }}
-                      className="admin-input tabular-nums"
-                    />
-                  </FormField>
-                </div>
-
-                {isEditJualBelowBeli && (
-                  <p className="text-[12px] font-medium text-[#B77700]">
-                    Harga jual lebih rendah dari harga beli.
-                  </p>
-                )}
-
-                {selectedPart.jenis === 'reguler' ? (
-                  <FormField id="edit-part-stokmin" label="Stok Minimum">
-                    <input
-                      id="edit-part-stokmin"
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={editStokMin}
-                      onChange={(e) => {
-                        setEditStokMin(e.target.value);
-                        if (editError) setEditError('');
-                      }}
-                      className="admin-input tabular-nums"
-                    />
-                  </FormField>
-                ) : (
-                  <div className="text-[13px] text-[#646B7C]">
-                    Stok Minimum: <strong className="text-[#1E2230]">Tidak berlaku</strong>
-                  </div>
-                )}
-
-                <FormField
-                  id="edit-part-note"
-                  label="Catatan penyesuaian (wajib, minimal 5 karakter)"
-                >
-                  <textarea
-                    id="edit-part-note"
-                    rows={2}
-                    value={editNote}
-                    onChange={(e) => {
-                      setEditNote(e.target.value);
-                      if (editError) setEditError('');
-                    }}
-                    placeholder="Contoh: Penyesuaian harga dari katalog pemasok terbaru"
-                    className="admin-input"
+                <FormField id="new-stok-awal" label="Stok Awal">
+                  <input
+                    id="new-stok-awal"
+                    type="number"
+                    min={0}
+                    value={stokAwal}
+                    onChange={(e) => setStokAwal(e.target.value)}
+                    className="admin-input h-10"
+                    required
                   />
                 </FormField>
 
-                {editError && (
-                  <p role="alert" className="text-[13px] font-medium text-[#D62E5A]">
-                    {editError}
-                  </p>
-                )}
-              </form>
-            )}
+                <FormField
+                  id="new-stok-min"
+                  label="Stok Minimum"
+                  helperText={jenis === 'ho' ? 'Tidak digunakan untuk HO' : undefined}
+                >
+                  <input
+                    id="new-stok-min"
+                    type="number"
+                    min={0}
+                    disabled={jenis === 'ho'}
+                    value={jenis === 'ho' ? '' : stokMin}
+                    onChange={(e) => setStokMin(e.target.value)}
+                    placeholder={jenis === 'ho' ? 'Otomatis' : '5'}
+                    className="admin-input h-10 disabled:bg-[#F6F7FA]"
+                    required={jenis === 'reguler'}
+                  />
+                </FormField>
 
-            {/* Riwayat edit section */}
-            <div ref={historySectionRef} className="pt-2 border-t border-[#EEF0F4] space-y-3">
-              <h3 className="text-[14px] font-semibold text-[#1E2230]">Riwayat edit</h3>
-              {selectedPartHistory.length === 0 ? (
-                <p className="text-[13px] text-[#646B7C] py-3">
-                  Belum ada riwayat perubahan pada part ini.
-                </p>
-              ) : (
-                <ul className="divide-y divide-[#EEF0F4] text-[13px]">
-                  {selectedPartHistory.map((h) => (
-                    <li
-                      key={h.id}
-                      className={`py-2.5 px-2 rounded-[10px] space-y-1 ${
-                        highlightedHistoryIds.has(h.id) ? 'admin-row-flash' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-[#1E2230]">{h.field}</span>
-                        <span className="font-mono text-[12px] text-[#646B7C]">{h.at}</span>
-                      </div>
-                      {(h.oldValue || h.newValue) && (
-                        <div className="font-mono text-[13px] text-[#1E2230]">
-                          <span className="text-[#646B7C] line-through mr-2">
-                            {h.oldValue}
-                          </span>
-                          <span>→ {h.newValue}</span>
-                        </div>
-                      )}
-                      {h.note && <p className="text-[#1E2230]">{h.note}</p>}
-                      <div className="text-[12px] text-[#646B7C]">
-                        Oleh: {h.byNama} (<samp className="font-mono">{h.byId}</samp>)
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <FormField id="new-harga-beli" label="Harga Beli (Rp)">
+                  <input
+                    id="new-harga-beli"
+                    type="number"
+                    min={0}
+                    value={hargaBeli}
+                    onChange={(e) => setHargaBeli(e.target.value)}
+                    className="admin-input h-10"
+                    required
+                  />
+                </FormField>
+
+                <FormField id="new-harga-jual" label="Harga Jual (Rp)">
+                  <input
+                    id="new-harga-jual"
+                    type="number"
+                    min={0}
+                    value={hargaJual}
+                    onChange={(e) => setHargaJual(e.target.value)}
+                    className="admin-input h-10"
+                    required
+                  />
+                </FormField>
+              </div>
+
+              <FormField id="new-catatan" label="Catatan Part" optional>
+                <input
+                  id="new-catatan"
+                  type="text"
+                  value={catatan}
+                  onChange={(e) => setCatatan(e.target.value)}
+                  placeholder="Contoh: Stok awal rak A2"
+                  className="admin-input h-10"
+                />
+              </FormField>
+
+              {formError && (
+                <div
+                  role="alert"
+                  className="rounded-[12px] bg-[rgba(242,70,111,0.12)] border border-[rgba(242,70,111,0.28)] px-3.5 py-2.5 text-[13px] font-medium text-[#D62E5A]"
+                >
+                  {formError}
+                </div>
               )}
-            </div>
-          </div>
-        )}
-      </SidePanel>
 
-      {/* Edit CredentialGate (Verified Email, ID Akun, Password Terbaru, PIN 5 Angka) */}
-      <CredentialGate
-        isOpen={editGateOpen}
-        title="Verifikasi Edit Part"
-        subtitle="Masukkan kredensial akun gudang terbaru untuk mengaktifkan mode edit"
-        prototypeNote="Gunakan Email Baru yang sudah diverifikasi, ID Akun (MG-001 / AD-001), Password Terbaru, dan PIN 5 Angka."
-        fields={EDIT_GATE_FIELDS}
-        submitLabel="Buka edit"
-        errorMessage="Data verifikasi tidak cocok."
-        onClose={() => setEditGateOpen(false)}
-        onVerify={async (vals) => {
-          const res = await verifyWarehouseAccessAsync(vals);
-          return {
-            ok: res.ok,
-            error: res.error,
-            data: res.user,
-          };
-        }}
-        onPass={(_vals, data) => {
-          const verified = data as VerifiedWarehouseUser | undefined;
-          beginEditAfterGate(
-            verified?.nama || user?.name || 'Admin',
-            verified?.id || user?.roleCode || 'AD-001'
-          );
-        }}
-      />
+              <div className="flex justify-end">
+                <ActionButton intent="add" type="submit" icon={<PlusIcon size={16} />}>
+                  Simpan Part Baru
+                </ActionButton>
+              </div>
+            </form>
+          </DataCard>
 
-      {/* Part Baru SidePanel */}
-      <SidePanel
-        isOpen={newPartOpen}
-        onClose={() => setNewPartOpen(false)}
-        title="Part baru"
-        widthClass="max-w-[540px]"
-        footer={
-          <>
-            <ActionButton
-              type="button"
-              intent="cancel"
-              onClick={() => setNewPartOpen(false)}
-            >
-              Tutup
-            </ActionButton>
-            <ActionButton
-              type="button"
-              intent="start"
-              onClick={() => handleSaveNewPart()}
-            >
-              Simpan part
-            </ActionButton>
-          </>
-        }
-      >
-        <form onSubmit={handleSaveNewPart} noValidate className="space-y-4">
-          <FormField id="new-part-kode" label="Kode Part">
-            <input
-              id="new-part-kode"
-              type="text"
-              readOnly
-              value={getNextPartCode()}
-              className="admin-input font-mono bg-[#F6F7FA] text-[#646B7C]"
-            />
-          </FormField>
-
-          <FormField id="new-part-nama" label="Nama part" error={newErrors.nama}>
-            <input
-              id="new-part-nama"
-              type="text"
-              value={newNama}
-              onChange={(e) => {
-                setNewNama(e.target.value);
-                if (newErrors.nama) {
-                  setNewErrors((prev) => ({ ...prev, nama: '' }));
-                }
-              }}
-              placeholder="Contoh: Filter udara matic"
-              className="admin-input"
-            />
-          </FormField>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField id="new-part-satuan" label="Satuan">
-              <select
-                id="new-part-satuan"
-                value={newSatuan}
-                onChange={(e) => setNewSatuan(e.target.value as PartSatuan)}
-                className="admin-input"
-              >
-                {SATUAN_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-
-            <div>
-              <span className="block font-sans font-medium text-[13px] text-[#1E2230] mb-1.5">
-                Jenis
-              </span>
+          <DataCard
+            title="Katalog Part Gudang"
+            actions={
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Cari kode atau nama part..."
+              />
+            }
+          >
+            <div className="mb-4">
               <FilterTabs
-                ariaLabel="Jenis part baru"
-                value={newJenis}
-                onChange={(v) => setNewJenis(v as 'reguler' | 'ho')}
+                ariaLabel="Filter daftar katalog part"
+                value={listFilter}
+                onChange={(v) => setListFilter((v as PartListFilter) || 'all')}
                 tabs={[
-                  { value: 'reguler', label: 'Reguler' },
-                  { value: 'ho', label: 'HO' },
+                  { value: 'all', label: 'Semua Part', count: totalCount },
+                  { value: 'low', label: 'Stok Kritis', count: lowCount },
+                  { value: 'reguler', label: 'Part Reguler', count: regulerCount },
+                  { value: 'ho', label: 'Part HO', count: hoCount },
                 ]}
               />
             </div>
-          </div>
 
-          <FormField id="new-part-stok-awal" label="Stok awal" error={newErrors.stokAwal}>
-            <input
-              id="new-part-stok-awal"
-              type="number"
-              min={0}
-              step={1}
-              value={newStokAwal}
-              onChange={(e) => {
-                setNewStokAwal(e.target.value);
-                if (newErrors.stokAwal) {
-                  setNewErrors((prev) => ({ ...prev, stokAwal: '' }));
-                }
-              }}
-              className="admin-input tabular-nums"
+            <DataTable
+              columns={columns}
+              data={filteredParts}
+              keyExtractor={(p) => p.kode}
+              swapKey={`input-part-table-${listFilter}-${searchQuery}-${filteredParts.length}`}
+              emptyMessage={
+                parts.length === 0
+                  ? 'Belum ada part di database. Gunakan form di atas untuk menambahkan part baru.'
+                  : 'Tidak ada part yang cocok dengan filter atau pencarian.'
+              }
             />
-          </FormField>
+          </DataCard>
+        </>
+      )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField
-              id="new-part-beli"
-              label="Harga beli (Rp)"
-              error={newErrors.hargaBeli}
-            >
-              <input
-                id="new-part-beli"
-                type="number"
-                min={0}
-                step={1000}
-                value={newHargaBeli}
-                onChange={(e) => {
-                  setNewHargaBeli(e.target.value);
-                  if (newErrors.hargaBeli) {
-                    setNewErrors((prev) => ({ ...prev, hargaBeli: '' }));
-                  }
-                }}
-                className="admin-input tabular-nums"
-              />
-            </FormField>
-
-            <FormField
-              id="new-part-jual"
-              label="Harga jual (Rp)"
-              error={newErrors.hargaJual}
-            >
-              <input
-                id="new-part-jual"
-                type="number"
-                min={0}
-                step={1000}
-                value={newHargaJual}
-                onChange={(e) => {
-                  setNewHargaJual(e.target.value);
-                  if (newErrors.hargaJual) {
-                    setNewErrors((prev) => ({ ...prev, hargaJual: '' }));
-                  }
-                }}
-                className="admin-input tabular-nums"
-              />
-            </FormField>
+      <SidePanel
+        isOpen={Boolean(editPartTarget)}
+        onClose={() => setEditPartTarget(null)}
+        title={editPartTarget ? `Edit Part ${editPartTarget.kode}` : 'Edit Part'}
+        description="Perbarui nama, satuan, stok, atau harga part. Perubahan dicatat ke database."
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <ActionButton intent="neutral" onClick={() => setEditPartTarget(null)}>
+              Batal
+            </ActionButton>
+            <ActionButton intent="start" type="submit" onClick={handleSaveEdit as any}>
+              Simpan Perubahan
+            </ActionButton>
           </div>
-
-          {isNewJualBelowBeli && (
-            <p className="text-[12px] font-medium text-[#B77700]">
-              Harga jual lebih rendah dari harga beli.
-            </p>
-          )}
-
-          {newJenis === 'reguler' ? (
-            <FormField
-              id="new-part-stokmin"
-              label="Stok minimum"
-              error={newErrors.stokMin}
-            >
+        }
+      >
+        {editPartTarget && (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <FormField id="master-edit-nama" label="Nama Part">
               <input
-                id="new-part-stokmin"
-                type="number"
-                min={0}
-                step={1}
-                value={newStokMin}
-                onChange={(e) => {
-                  setNewStokMin(e.target.value);
-                  if (newErrors.stokMin) {
-                    setNewErrors((prev) => ({ ...prev, stokMin: '' }));
-                  }
-                }}
-                className="admin-input tabular-nums"
-              />
-            </FormField>
-          ) : (
-            <FormField id="new-part-stokmin-ho" label="Stok minimum">
-              <input
-                id="new-part-stokmin-ho"
+                id="master-edit-nama"
                 type="text"
-                readOnly
-                value="Tidak berlaku"
-                className="admin-input bg-[#F6F7FA] text-[#646B7C]"
+                value={editNama}
+                onChange={(e) => setEditNama(e.target.value)}
+                className="admin-input h-10"
+                required
               />
             </FormField>
-          )}
 
-          <FormField id="new-part-catatan" label="Catatan (opsional)">
-            <textarea
-              id="new-part-catatan"
-              rows={2}
-              value={newCatatan}
-              onChange={(e) => setNewCatatan(e.target.value)}
-              placeholder="Catatan tambahan part baru"
-              className="admin-input"
-            />
-          </FormField>
-        </form>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField id="master-edit-satuan" label="Satuan">
+                <select
+                  id="master-edit-satuan"
+                  value={editSatuan}
+                  onChange={(e) => setEditSatuan(e.target.value)}
+                  className="admin-input h-10"
+                >
+                  {SATUAN_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField id="master-edit-stok" label="Stok Saat Ini">
+                <input
+                  id="master-edit-stok"
+                  type="number"
+                  min={0}
+                  value={editStok}
+                  onChange={(e) => setEditStok(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            </div>
+
+            {editPartTarget.jenis === 'reguler' && (
+              <FormField id="master-edit-min" label="Stok Minimum">
+                <input
+                  id="master-edit-min"
+                  type="number"
+                  min={0}
+                  value={editStokMin}
+                  onChange={(e) => setEditStokMin(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField id="master-edit-beli" label="Harga Beli (Rp)">
+                <input
+                  id="master-edit-beli"
+                  type="number"
+                  min={0}
+                  value={editHargaBeli}
+                  onChange={(e) => setEditHargaBeli(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+
+              <FormField id="master-edit-jual" label="Harga Jual (Rp)">
+                <input
+                  id="master-edit-jual"
+                  type="number"
+                  min={0}
+                  value={editHargaJual}
+                  onChange={(e) => setEditHargaJual(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            </div>
+
+            <FormField
+              id="master-edit-note"
+              label="Catatan Penyesuaian"
+              helperText="Minimal 5 karakter untuk pencatatan riwayat perubahan."
+            >
+              <textarea
+                id="master-edit-note"
+                rows={3}
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="Contoh: Penyesuaian harga supplier bulan ini"
+                className="admin-input py-2.5 min-h-[84px]"
+                required
+              />
+            </FormField>
+
+            {editError && (
+              <div
+                role="alert"
+                className="rounded-[12px] bg-[rgba(242,70,111,0.12)] border border-[rgba(242,70,111,0.28)] px-3.5 py-2.5 text-[13px] font-medium text-[#D62E5A]"
+              >
+                {editError}
+              </div>
+            )}
+          </form>
+        )}
       </SidePanel>
-    </>
+
+      <SidePanel
+        isOpen={Boolean(historyPartTarget)}
+        onClose={() => setHistoryPartTarget(null)}
+        title={historyPartTarget ? `Riwayat Part ${historyPartTarget.kode}` : 'Riwayat Part'}
+        description={historyPartTarget ? historyPartTarget.nama : undefined}
+      >
+        {selectedHistoryRows.length === 0 ? (
+          <p className="text-[13px] text-[#646B7C] bg-[#F6F7FA] rounded-[12px] p-4">
+            Belum ada riwayat perubahan tercatat untuk part ini.
+          </p>
+        ) : (
+          <ul className="space-y-2.5">
+            {selectedHistoryRows.map((h) => (
+              <li key={h.id} className="p-3.5 rounded-[12px] border border-[#EEF0F4] bg-white text-[13px]">
+                <div className="flex items-center justify-between gap-2 text-[12px] text-[#646B7C]">
+                  <span>{h.at}</span>
+                  <span>
+                    {h.byNama} ({h.byId})
+                  </span>
+                </div>
+                <div className="font-semibold text-[#1E2230] mt-1">
+                  {h.field}: {h.oldValue} {'->'} {h.newValue}
+                </div>
+                {h.note && <div className="text-[12px] text-[#646B7C] mt-0.5">{h.note}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </SidePanel>
+
+      <CenterDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Hapus Data Part"
+        subtitle={
+          deleteTarget
+            ? `Apakah Anda yakin ingin menghapus part ${deleteTarget.kode} (${deleteTarget.nama})?`
+            : undefined
+        }
+        maxWidthClass="max-w-[460px]"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <ActionButton intent="neutral" onClick={() => setDeleteTarget(null)}>
+              Batal
+            </ActionButton>
+            <ActionButton intent="cancel" onClick={handleConfirmDelete}>
+              Ya, Hapus Part
+            </ActionButton>
+          </div>
+        }
+      >
+        {deleteTarget && (
+          <div className="rounded-[12px] bg-[#F6F7FA] border border-[#E6E9F0] p-3.5 text-[13px] text-[#454D5F]">
+            Part <strong>{deleteTarget.kode}</strong> ({deleteTarget.nama}) akan dihapus dari katalog gudang.
+          </div>
+        )}
+      </CenterDialog>
+    </div>
   );
 };
 

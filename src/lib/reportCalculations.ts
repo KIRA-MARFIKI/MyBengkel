@@ -4,7 +4,6 @@ import {
   type Mechanic,
   type MechanicAttendance,
   type Part,
-  type PurchaseRequest,
   type Sale,
   type ServiceForm,
   type StockMovement,
@@ -845,8 +844,6 @@ export interface WarehousePartConditionRow {
   jenis: 'reguler' | 'ho';
   status: 'Aman' | 'Kritis' | 'HO';
   tanggalDibuat: string;
-  tanggalPermintaan: string;
-  tanggalTerimaTerakhir: string;
 }
 
 export interface WarehouseMovementRow {
@@ -860,33 +857,6 @@ export interface WarehouseMovementRow {
   sumberMutasi: string;
   dicatatOleh: string;
   catatan: string;
-}
-
-export interface WarehouseRequestRow {
-  kodePermintaan: string;
-  jenisPermintaan: string;
-  pemohon: string;
-  kodePart: string;
-  namaPart: string;
-  jumlah: number;
-  statusPart: string;
-  statusPermintaan: string;
-  kodePemesanan: string;
-  tanggalDiajukan: string;
-  tanggalDiterima: string;
-  alasan: string;
-}
-
-export interface WarehouseOrderRow {
-  kodePemesanan: string;
-  jenis: string;
-  namaPemohon: string;
-  jumlahPart: number;
-  status: string;
-  tanggalPesan: string;
-  tanggalSampai: string;
-  tanggalDiproses: string;
-  alasanBatal: string;
 }
 
 import {
@@ -920,8 +890,6 @@ export interface WarehouseReportData {
     totalStokTersedia: number;
     totalBarangMasuk: number;
     totalBarangKeluar: number;
-    totalPermintaanPending: number;
-    totalPesananBelumSampai: number;
   };
   charts: {
     kondisiStokDoughnut: {
@@ -947,8 +915,6 @@ export interface WarehouseReportData {
   tables: {
     partConditions: WarehousePartConditionRow[];
     movements: WarehouseMovementRow[];
-    requests: WarehouseRequestRow[];
-    orders: WarehouseOrderRow[];
   };
   stockOpname: {
     kpis: {
@@ -970,20 +936,14 @@ export function calculateWarehouseReport(
   store: {
     parts: Part[];
     stockMovements: StockMovement[];
-    purchaseRequests: PurchaseRequest[];
     stockOpnames?: StockOpnameSession[];
   }
 ): WarehouseReportData {
-  const { parts, stockMovements, purchaseRequests, stockOpnames = [] } = store;
+  const { parts, stockMovements, stockOpnames = [] } = store;
   const periodLabel = getPeriodDisplayLabel(period);
 
   // Filter movements in period
   const periodMovements = stockMovements.filter((m) => isDateInPeriod(m.date, period));
-
-  // Filter purchase requests in period (created or arrived)
-  const periodRequests = purchaseRequests.filter((pr) =>
-    isDateInPeriod(pr.createdAt, period) || isDateInPeriod(pr.arrivedAt, period)
-  );
 
   // Filter stock opnames in period
   const periodOpnames = stockOpnames.filter((so) =>
@@ -1018,21 +978,6 @@ export function calculateWarehouseReport(
       }
     }
 
-    // Find last request and receive date for this part
-    let lastReqDate = '-';
-    let lastRcpDate = '-';
-    for (const pr of purchaseRequests) {
-      const hasPart = pr.lines.some((l) => (l.partId === code));
-      if (hasPart) {
-        if (pr.createdAt && (lastReqDate === '-' || pr.createdAt > lastReqDate)) {
-          lastReqDate = pr.createdAt;
-        }
-        if (pr.arrivedAt && (lastRcpDate === '-' || pr.arrivedAt > lastRcpDate)) {
-          lastRcpDate = pr.arrivedAt;
-        }
-      }
-    }
-
     return {
       kodePart: code,
       namaPart: p.nama || p.name || 'Part',
@@ -1044,8 +989,6 @@ export function calculateWarehouseReport(
       jenis: isHo ? 'ho' : 'reguler',
       status,
       tanggalDibuat: p.createdAt || '-',
-      tanggalPermintaan: lastReqDate,
-      tanggalTerimaTerakhir: lastRcpDate,
     };
   });
 
@@ -1099,77 +1042,6 @@ export function calculateWarehouseReport(
       catatan: m.reason || '-',
     };
   });
-
-  // Requests Table
-  const requestRows: WarehouseRequestRow[] = [];
-  let pendingRequestCount = 0;
-  let orderBelumSampaiCount = 0;
-
-  for (const pr of periodRequests) {
-    if (pr.state === 'diajukan' || pr.state === 'belum_sampai') {
-      pendingRequestCount++;
-    }
-    if (pr.state === 'belum_sampai') {
-      orderBelumSampaiCount++;
-    }
-
-    for (const l of pr.lines) {
-      const code = l.partId;
-      const p = parts.find((pt) => pt.kode === code || pt.code === code);
-      requestRows.push({
-        kodePermintaan: pr.id,
-        jenisPermintaan: pr.type === 'ho' ? 'Head Office (HO)' : 'Reguler',
-        pemohon: pr.requesterName || 'Admin Gudang',
-        kodePart: code,
-        namaPart: p?.nama || p?.name || code,
-        jumlah: l.qty,
-        statusPart: l.lineState === 'terima' ? 'Terima' : l.lineState === 'batal' ? 'Batal' : 'Belum',
-        statusPermintaan:
-          pr.state === 'selesai'
-            ? 'Selesai'
-            : pr.state === 'sampai'
-            ? 'Sampai'
-            : pr.state === 'belum_sampai'
-            ? 'Belum sampai'
-            : pr.state === 'ditolak'
-            ? 'Ditolak'
-            : pr.state === 'batal'
-            ? 'Batal'
-            : 'Diajukan',
-        kodePemesanan: pr.orderCode || '-',
-        tanggalDiajukan: pr.createdAt || '-',
-        tanggalDiterima: l.receivedAt || pr.arrivedAt || '-',
-        alasan: pr.requestReason || '-',
-      });
-    }
-  }
-
-  // Orders Table (Grouped by orderCode)
-  const orderRows: WarehouseOrderRow[] = periodRequests
-    .filter((pr) => Boolean(pr.orderCode))
-    .map((pr) => {
-      const totalPartQty = pr.lines.reduce((s, l) => s + l.qty, 0);
-      return {
-        kodePemesanan: pr.orderCode || pr.id,
-        jenis: pr.type === 'ho' ? 'HO' : 'Reguler',
-        namaPemohon: pr.requesterName || 'Admin Gudang',
-        jumlahPart: totalPartQty,
-        status:
-          pr.state === 'selesai'
-            ? 'Selesai'
-            : pr.state === 'sampai'
-            ? 'Sampai'
-            : pr.state === 'belum_sampai'
-            ? 'Belum sampai'
-            : pr.state === 'ditolak'
-            ? 'Ditolak'
-            : 'Batal',
-        tanggalPesan: pr.orderedAt || pr.createdAt || '-',
-        tanggalSampai: pr.arrivedAt || '-',
-        tanggalDiproses: pr.processedAt || '-',
-        alasanBatal: pr.closeReason || '-',
-      };
-    });
 
   // Bar Chart: Pergerakan Stok (Grouped bars: Masuk vs Keluar)
   let barLabels: string[] = [];
@@ -1274,8 +1146,6 @@ export function calculateWarehouseReport(
       totalStokTersedia,
       totalBarangMasuk,
       totalBarangKeluar,
-      totalPermintaanPending: pendingRequestCount,
-      totalPesananBelumSampai: orderBelumSampaiCount,
     },
     charts: {
       kondisiStokDoughnut: {
@@ -1301,8 +1171,6 @@ export function calculateWarehouseReport(
     tables: {
       partConditions,
       movements: movementRows,
-      requests: requestRows,
-      orders: orderRows,
     },
     stockOpname: {
       kpis: {

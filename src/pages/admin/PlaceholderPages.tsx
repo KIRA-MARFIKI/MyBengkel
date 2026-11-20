@@ -12,10 +12,9 @@ export const V1WorkOrders: React.FC = () => <Placeholder title="Work Order" />;
 export const V1Attendance: React.FC = () => <Placeholder title="Absen Mekanik" />;
 export const V1Reports: React.FC = () => <Placeholder title="Laporan Operasional" />;
 
-export const V2PurchaseRequests: React.FC = () => <Placeholder title="Permintaan Penyediaan" />;
-export const V2Warehouse: React.FC = () => <Placeholder title="Pengelolaan Gudang" />;
+export const V2Warehouse: React.FC = () => <Placeholder title="Stok Part" />;
 export const V2Sales: React.FC = () => <Placeholder title="Penjualan" />;
-export const V2ManualEntries: React.FC = () => <Placeholder title="Input Manual" />;
-export const V2Reports: React.FC = () => <Placeholder title="Laporan Gudang dan Penjualan" />;
+export const V2InputPart: React.FC = () => <Placeholder title="Input Part" />;
+export const V2Reports: React.FC = () => <Placeholder title="Laporan Penjualan dan Gudang" />;
 
 export const HelpDeskPage: React.FC = () => <Placeholder title="Help Desk" />;

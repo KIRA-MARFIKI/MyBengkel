@@ -6,7 +6,6 @@ import {
   CorrectionRequest,
   HelpDeskTicket,
   KnowledgeBaseArticle,
-  LineFulfilState,
   ManualEntry,
   Mechanic,
   MechanicAttendance,
@@ -14,10 +13,6 @@ import {
   PartChangeRecord,
   PartHistory,
   PartJenis,
-  PurchaseRequest,
-  PurchaseRequestCustomer,
-  PurchaseRequestLine,
-  PurchaseRequesterKind,
   Sale,
   SaleLine,
   SalePaymentMethod,
@@ -42,7 +37,6 @@ import {
   initialMechanics,
   initialPartHistory,
   initialParts,
-  initialPurchaseRequests,
   initialSales,
   initialServiceForms,
   initialStockMovements,
@@ -97,7 +91,6 @@ export interface PersistedAdminStore {
   bookings: Booking[];
   serviceForms: ServiceForm[];
   workOrders: WorkOrder[];
-  purchaseRequests: PurchaseRequest[];
   sales: Sale[];
   attendance: MechanicAttendance[];
   tickets: HelpDeskTicket[];
@@ -135,32 +128,6 @@ const getNextSequentialId = (prefix: string, padLen: number, existingIds: string
   return `${prefix}-${String(maxNum + 1).padStart(padLen, '0')}`;
 };
 
-export const generateOrderCode = (
-  type: 'reguler' | 'ho',
-  existingRequests: PurchaseRequest[],
-  dateIso: string = formatTodayDate()
-): string => {
-  const datePart = dateToSlash(dateIso);
-  const suffix = type === 'ho' ? 'HO' : 'RG';
-  const prefix = `${datePart}/`;
-  const suffixWithSlash = `/${suffix}`;
-
-  let maxSeq = 0;
-  for (const pr of existingRequests) {
-    if (!pr.orderCode) continue;
-    const code = pr.orderCode.trim();
-    if (code.startsWith(prefix) && code.endsWith(suffixWithSlash)) {
-      const middle = code.slice(prefix.length, code.length - suffixWithSlash.length);
-      const parsed = Number(middle);
-      if (!Number.isNaN(parsed) && parsed > maxSeq) {
-        maxSeq = parsed;
-      }
-    }
-  }
-
-  return `${datePart}/${String(maxSeq + 1).padStart(5, '0')}/${suffix}`;
-};
-
 const DUMMY_TICKET_IDS = new Set(['TKT-001', 'TKT-002', 'TKT-003', 'TKT-004']);
 const DUMMY_CORRECTION_IDS = new Set(['COR-001', 'COR-002']);
 const DUMMY_KB_IDS = new Set(['KB-001', 'KB-002', 'KB-003', 'KB-004', 'KB-005', 'KB-006']);
@@ -183,14 +150,6 @@ const stripLegacyDummyHelpdeskItems = (
 
 const VALID_BOOKING_STATUSES = new Set<string>(['menunggu', 'datang', 'batal']);
 const VALID_SF_STATUSES = new Set<string>(['menunggu_persetujuan', 'disetujui', 'batal']);
-const VALID_PR_STATES = new Set<string>([
-  'diajukan',
-  'belum_sampai',
-  'sampai',
-  'selesai',
-  'ditolak',
-  'batal',
-]);
 
 const createDefaultStore = (): PersistedAdminStore => ({
   mechanics: initialMechanics,
@@ -203,7 +162,6 @@ const createDefaultStore = (): PersistedAdminStore => ({
   bookings: initialBookings,
   serviceForms: initialServiceForms,
   workOrders: initialWorkOrders,
-  purchaseRequests: initialPurchaseRequests,
   sales: initialSales,
   attendance: initialAttendance,
   tickets: initialHelpDeskTickets,
@@ -287,12 +245,6 @@ const loadInitialStore = (): PersistedAdminStore => {
       ? parsed.parts.map((p) => normalizePart(p))
       : defaults.parts;
 
-    const normalizedPRs = Array.isArray(parsed.purchaseRequests)
-      ? parsed.purchaseRequests.filter(
-          (pr) => pr && VALID_PR_STATES.has(pr.state) && Array.isArray(pr.lines)
-        )
-      : defaults.purchaseRequests;
-
     const normalizedMovements = Array.isArray(parsed.stockMovements)
       ? parsed.stockMovements.map((m) => ({
           ...m,
@@ -322,7 +274,6 @@ const loadInitialStore = (): PersistedAdminStore => {
       bookings: normalizedBookings,
       serviceForms: normalizedSFs,
       workOrders: normalizedWOs,
-      purchaseRequests: normalizedPRs,
       sales: parsed.sales ?? defaults.sales,
       attendance: parsed.attendance ?? defaults.attendance,
       tickets: cleanedHelpdesk.tickets,
@@ -401,11 +352,18 @@ const mergeRemoteBookings = (
 
 const normalizeRemoteStore = (
   raw: Partial<RemoteWorkshopPayload>,
-  tableBookingRows: any[] = []
+  tableBookingRows: any[] = [],
+  tablePartsRows: any[] = []
 ): PersistedAdminStore => {
   const defaults = createDefaultStore();
   const baseBookings = Array.isArray(raw.bookings) ? raw.bookings : defaults.bookings;
   const mergedBookings = mergeRemoteBookings(baseBookings, tableBookingRows);
+
+  const normalizedParts = Array.isArray(raw.parts)
+    ? raw.parts.map((p) => normalizePart(p))
+    : Array.isArray(tablePartsRows) && tablePartsRows.length > 0
+      ? tablePartsRows.map((p) => normalizePart(p))
+      : defaults.parts;
 
   const cleanedHelpdesk = stripLegacyDummyHelpdeskItems(
     Array.isArray(raw.tickets) ? raw.tickets : defaults.tickets,
@@ -417,7 +375,7 @@ const normalizeRemoteStore = (
     mechanics: Array.isArray(raw.mechanics) ? raw.mechanics : defaults.mechanics,
     customers: Array.isArray(raw.customers) ? raw.customers : defaults.customers,
     vehicles: Array.isArray(raw.vehicles) ? raw.vehicles : defaults.vehicles,
-    parts: Array.isArray(raw.parts) ? raw.parts.map((p) => normalizePart(p)) : defaults.parts,
+    parts: normalizedParts,
     partHistory: Array.isArray(raw.partHistory)
       ? raw.partHistory
       : Array.isArray(raw.partChanges)
@@ -440,9 +398,6 @@ const normalizeRemoteStore = (
     })) as Booking[],
     serviceForms: Array.isArray(raw.serviceForms) ? raw.serviceForms : defaults.serviceForms,
     workOrders: Array.isArray(raw.workOrders) ? raw.workOrders : defaults.workOrders,
-    purchaseRequests: Array.isArray(raw.purchaseRequests)
-      ? raw.purchaseRequests
-      : defaults.purchaseRequests,
     sales: Array.isArray(raw.sales) ? raw.sales : defaults.sales,
     attendance: Array.isArray(raw.attendance) ? raw.attendance : defaults.attendance,
     tickets: cleanedHelpdesk.tickets,
@@ -490,6 +445,7 @@ export async function syncSharedWorkshopStateFromSupabase(): Promise<void> {
   try {
     let remotePayload: Partial<RemoteWorkshopPayload> | null = null;
     let bookingRows: any[] = [];
+    let partsRows: any[] = [];
 
     try {
       const { data, error } = await supabase.rpc('get_shared_workshop_state');
@@ -499,6 +455,9 @@ export async function syncSharedWorkshopStateFromSupabase(): Promise<void> {
         }
         if (Array.isArray(data.bookings_rows)) {
           bookingRows = data.bookings_rows;
+        }
+        if (Array.isArray(data.parts_rows)) {
+          partsRows = data.parts_rows;
         }
       }
     } catch {
@@ -531,7 +490,18 @@ export async function syncSharedWorkshopStateFromSupabase(): Promise<void> {
       }
     }
 
-    if (!remotePayload && bookingRows.length === 0) {
+    if (partsRows.length === 0) {
+      try {
+        const { data: pRows } = await supabase.from('parts').select('*');
+        if (Array.isArray(pRows)) {
+          partsRows = pRows;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!remotePayload && bookingRows.length === 0 && partsRows.length === 0) {
       // First initialization: push seed/local store to shared remote state
       await pushSharedWorkshopStateToSupabase(storeState);
       return;
@@ -565,7 +535,7 @@ export async function syncSharedWorkshopStateFromSupabase(): Promise<void> {
       }
     }
 
-    const nextNormalized = normalizeRemoteStore(remotePayload || {}, bookingRows);
+    const nextNormalized = normalizeRemoteStore(remotePayload || {}, bookingRows, partsRows);
     const nextSig = JSON.stringify(nextNormalized);
     if (nextSig !== lastSyncedSignature && nextSig !== JSON.stringify(storeState)) {
       lastSyncedSignature = nextSig;
@@ -673,24 +643,10 @@ export const subscribeAdminStore = (listener: () => void): (() => void) => {
 };
 
 export const resetAdminStoreToSeed = (): void => {
-  lastRegulerSubmissionSig = '';
-  lastRegulerSubmissionId = '';
-  lastHoSubmissionSig = '';
-  lastHoSubmissionId = '';
   lastMasterPartSig = '';
   lastMasterPartCode = '';
   saveStore(createDefaultStore());
 };
-
-export const getNextPmtCode = (): string => {
-  const cur = getAdminStore();
-  return getNextSequentialId(
-    'PMT',
-    4,
-    cur.purchaseRequests.map((pr) => pr.id)
-  );
-};
-
 export const getNextPartCode = (): string => {
   const cur = getAdminStore();
   return getNextSequentialId(
@@ -701,944 +657,38 @@ export const getNextPartCode = (): string => {
 };
 
 // -------------------------------------------------------------
-// GD-0 ATOMIC, IDEMPOTENT GUDANG OPERATIONS OUTSIDE COMPONENTS
-// -------------------------------------------------------------
-
-let lastRegulerSubmissionSig = '';
-let lastRegulerSubmissionId = '';
-
-export interface CreateRegulerLineInput {
-  partId: string;
-  qty: number;
-  hargaPerkiraan?: number;
-}
-
-export interface CreateRegulerRequestInput {
-  requestReason: string;
-  lines: CreateRegulerLineInput[];
-  submissionId?: string;
-}
-
-export interface CreateRegulerRequestResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function createRegulerRequest(
-  input: CreateRegulerRequestInput
-): CreateRegulerRequestResult {
-  const state = getAdminStore();
-  const reason = input.requestReason.trim();
-  if (!reason) {
-    return { ok: false, error: 'Alasan permintaan wajib diisi.' };
-  }
-  if (!Array.isArray(input.lines) || input.lines.length === 0) {
-    return { ok: false, error: 'Tambahkan minimal 1 part.' };
-  }
-  if (input.lines.length > 20) {
-    return { ok: false, error: 'Maksimal 20 baris part dalam satu permintaan.' };
-  }
-
-  const seenParts = new Set<string>();
-  for (const line of input.lines) {
-    const pid = line.partId.trim();
-    if (!pid || !state.parts.some((p) => p.id === pid || p.kode === pid)) {
-      return { ok: false, error: 'Pilih part yang terdaftar di Master Gudang.' };
-    }
-    if (seenParts.has(pid)) {
-      return { ok: false, error: 'Part ini sudah ada di daftar.' };
-    }
-    seenParts.add(pid);
-    if (!Number.isInteger(line.qty) || line.qty < 1) {
-      return { ok: false, error: 'Jumlah harus berupa angka bulat minimal 1.' };
-    }
-  }
-
-  const sig =
-    input.submissionId ||
-    `reg|${reason}|${input.lines
-      .map((l) => `${l.partId}:${l.qty}:${l.hargaPerkiraan || 0}`)
-      .join(',')}`;
-
-  if (sig && sig === lastRegulerSubmissionSig && lastRegulerSubmissionId) {
-    const existing = state.purchaseRequests.find((r) => r.id === lastRegulerSubmissionId);
-    if (existing) {
-      return { ok: true, request: existing };
-    }
-  }
-
-  const newId = getNextPmtCode();
-  const now = formatNowTimestamp();
-
-  const lines: PurchaseRequestLine[] = input.lines.map((l, idx) => ({
-    id: `prl-${newId.toLowerCase()}-${idx + 1}`,
-    partId: l.partId.trim(),
-    qty: l.qty,
-    hargaPerkiraan: l.hargaPerkiraan && l.hargaPerkiraan > 0 ? Math.round(l.hargaPerkiraan) : 0,
-    fulfil: 'dipenuhi',
-    lineState: 'belum',
-  }));
-
-  const newReq: PurchaseRequest = {
-    id: newId,
-    type: 'reguler',
-    requesterKind: 'bengkel',
-    requesterName: 'Admin Gudang',
-    dp: 0,
-    createdAt: now,
-    requestReason: reason,
-    state: 'diajukan',
-    lines,
-  };
-
-  lastRegulerSubmissionSig = sig;
-  lastRegulerSubmissionId = newId;
-
-  saveStore({
-    ...state,
-    purchaseRequests: [newReq, ...state.purchaseRequests],
-  });
-
-  return { ok: true, request: newReq };
-}
-
-export function setLineFulfil(
-  requestId: string,
-  lineIds: string[],
-  fulfil: LineFulfilState
-): PurchaseRequest | null {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req) return null;
-
-  // Only editable while state is diajukan
-  if (req.state !== 'diajukan') {
-    return req;
-  }
-
-  const idSet = new Set(lineIds);
-  const needsUpdate = req.lines.some((l) => idSet.has(l.id) && l.fulfil !== fulfil);
-  if (!needsUpdate) {
-    return req;
-  }
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    lines: req.lines.map((l) => (idSet.has(l.id) ? { ...l, fulfil } : l)),
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-  });
-
-  return updatedReq;
-}
-
-export interface ApproveRegulerResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function approveRegulerRequest(requestId: string): ApproveRegulerResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req) {
-    return { ok: false, error: 'Permintaan tidak ditemukan.' };
-  }
-
-  // Idempotent: if already approved (belum_sampai or sampai), return existing result
-  if (req.state === 'belum_sampai' || req.state === 'sampai') {
-    return { ok: true, request: req };
-  }
-
-  if (req.state !== 'diajukan') {
-    return { ok: false, error: 'Permintaan sudah tidak dalam status diajukan.', request: req };
-  }
-
-  const fulfilledLines = req.lines.filter((l) => l.fulfil === 'dipenuhi');
-  if (fulfilledLines.length === 0) {
-    return {
-      ok: false,
-      error: 'Tidak ada part yang dipenuhi. Pilih minimal satu part.',
-      request: req,
-    };
-  }
-
-  const now = formatNowTimestamp();
-  const orderCode = generateOrderCode('reguler', state.purchaseRequests);
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'belum_sampai',
-    orderCode,
-    orderedAt: now,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-export interface RejectRegulerResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function rejectRegulerRequest(
-  requestIdOrObj: string | { requestId: string; reason: string },
-  reasonArg?: string
-): RejectRegulerResult {
-  const requestId =
-    typeof requestIdOrObj === 'string' ? requestIdOrObj : requestIdOrObj.requestId;
-  const rawReason =
-    typeof requestIdOrObj === 'string' ? reasonArg || '' : requestIdOrObj.reason;
-
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req) {
-    return { ok: false, error: 'Permintaan tidak ditemukan.' };
-  }
-
-  // Idempotent: if already rejected, return existing
-  if (req.state === 'ditolak') {
-    return { ok: true, request: req };
-  }
-
-  if (req.state !== 'diajukan') {
-    return { ok: false, error: 'Permintaan sudah diproses.', request: req };
-  }
-
-  const trimmedReason = rawReason.trim();
-  if (!trimmedReason) {
-    return { ok: false, error: 'Alasan penolakan wajib diisi.' };
-  }
-
-  const now = formatNowTimestamp();
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'ditolak',
-    closeReason: trimmedReason,
-    closedAt: now,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-let lastHoSubmissionSig = '';
-let lastHoSubmissionId = '';
-
-export interface CreateHoLineInput {
-  partId: string;
-  qty: number;
-  hargaPerkiraan?: number;
-}
-
-export interface CreateHoRequestInput {
-  requesterKind: PurchaseRequesterKind;
-  customer?: PurchaseRequestCustomer;
-  dp?: number;
-  requestReason?: string;
-  lines: CreateHoLineInput[];
-  submissionId?: string;
-}
-
-export interface CreateHoRequestResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function createHoRequest(input: CreateHoRequestInput): CreateHoRequestResult {
-  const state = getAdminStore();
-  if (!Array.isArray(input.lines) || input.lines.length === 0) {
-    return { ok: false, error: 'Tambahkan minimal 1 part.' };
-  }
-  if (input.lines.length > 20) {
-    return { ok: false, error: 'Maksimal 20 baris part dalam satu permintaan.' };
-  }
-
-  const seenParts = new Set<string>();
-  for (const line of input.lines) {
-    const pid = line.partId.trim();
-    if (!pid || !state.parts.some((p) => p.id === pid || p.kode === pid)) {
-      return { ok: false, error: 'Pilih part yang terdaftar di Master Gudang.' };
-    }
-    if (seenParts.has(pid)) {
-      return { ok: false, error: 'Part ini sudah ada di daftar.' };
-    }
-    seenParts.add(pid);
-    if (!Number.isInteger(line.qty) || line.qty < 1) {
-      return { ok: false, error: 'Jumlah harus berupa angka bulat minimal 1.' };
-    }
-    if (
-      input.requesterKind === 'pelanggan' &&
-      (line.hargaPerkiraan === undefined || line.hargaPerkiraan <= 0)
-    ) {
-      return { ok: false, error: 'Harga per unit wajib diisi untuk permintaan pelanggan.' };
-    }
-  }
-
-  const totalHarga = input.lines.reduce(
-    (sum, l) => sum + l.qty * Math.round(l.hargaPerkiraan || 0),
-    0
-  );
-  const dpAmount = input.requesterKind === 'pelanggan' ? Math.round(input.dp || 0) : 0;
-
-  if (input.requesterKind === 'pelanggan') {
-    if (dpAmount < 0) {
-      return { ok: false, error: 'DP pembayaran minimal Rp 0.' };
-    }
-    if (dpAmount > totalHarga) {
-      return { ok: false, error: 'DP tidak boleh lebih besar dari total harga.' };
-    }
-  }
-
-  const sig =
-    input.submissionId ||
-    `ho|${input.requesterKind}|${input.customer?.nama || ''}|${dpAmount}|${input.lines
-      .map((l) => `${l.partId}:${l.qty}:${l.hargaPerkiraan || 0}`)
-      .join(',')}`;
-
-  if (sig && sig === lastHoSubmissionSig && lastHoSubmissionId) {
-    const existing = state.purchaseRequests.find((r) => r.id === lastHoSubmissionId);
-    if (existing) {
-      return { ok: true, request: existing };
-    }
-  }
-
-  const newId = getNextPmtCode();
-  const now = formatNowTimestamp();
-  const orderCode = generateOrderCode('ho', state.purchaseRequests);
-
-  const lines: PurchaseRequestLine[] = input.lines.map((l, idx) => ({
-    id: `prl-${newId.toLowerCase()}-${idx + 1}`,
-    partId: l.partId.trim(),
-    qty: l.qty,
-    hargaPerkiraan: l.hargaPerkiraan && l.hargaPerkiraan > 0 ? Math.round(l.hargaPerkiraan) : 0,
-    fulfil: 'dipenuhi',
-    lineState: 'belum',
-  }));
-
-  const cleanCustomer: PurchaseRequestCustomer | undefined =
-    input.requesterKind === 'pelanggan' && input.customer
-      ? {
-          nama: input.customer.nama.trim(),
-          alamat: input.customer.alamat.trim(),
-          noMesin: input.customer.noMesin.trim().toUpperCase(),
-          noRangka: input.customer.noRangka.trim().toUpperCase(),
-          hp: input.customer.hp.trim(),
-          email: input.customer.email.trim(),
-        }
-      : undefined;
-
-  const newReq: PurchaseRequest = {
-    id: newId,
-    type: 'ho',
-    requesterKind: input.requesterKind,
-    requesterName:
-      input.requesterKind === 'pelanggan' && cleanCustomer
-        ? cleanCustomer.nama
-        : 'Admin Gudang',
-    customer: cleanCustomer,
-    dp: dpAmount,
-    createdAt: now,
-    requestReason:
-      input.requestReason?.trim() ||
-      (input.requesterKind === 'pelanggan' ? 'Permintaan pelanggan' : 'Permintaan bengkel'),
-    state: 'belum_sampai',
-    orderCode,
-    orderedAt: now,
-    lines,
-  };
-
-  lastHoSubmissionSig = sig;
-  lastHoSubmissionId = newId;
-
-  saveStore({
-    ...state,
-    purchaseRequests: [newReq, ...state.purchaseRequests],
-  });
-
-  return { ok: true, request: newReq };
-}
-
-export interface ReceiveLineResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-  line?: PurchaseRequestLine;
-}
-
-export function receiveLine(requestId: string, lineId: string): ReceiveLineResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req) {
-    return { ok: false, error: 'Permintaan tidak ditemukan.' };
-  }
-
-  const targetLine = req.lines.find((l) => l.id === lineId);
-  if (!targetLine || targetLine.fulfil !== 'dipenuhi') {
-    return { ok: false, error: 'Baris part tidak ditemukan pada pemesanan ini.' };
-  }
-
-  // Idempotent: if already received, change nothing and return existing
-  if (targetLine.lineState === 'terima') {
-    return { ok: true, request: req, line: targetLine };
-  }
-
-  if (targetLine.lineState === 'batal') {
-    return { ok: false, error: 'Baris pesanan sudah dibatalkan.', request: req, line: targetLine };
-  }
-
-  const now = formatNowTimestamp();
-  const receiptToken = `rcp-${req.id}-${targetLine.id}-${Date.now()}`;
-
-  const updatedLines = req.lines.map((l) =>
-    l.id === lineId
-      ? {
-          ...l,
-          lineState: 'terima' as const,
-          receivedAt: now,
-          receiptToken,
-        }
-      : l
-  );
-
-  const fulfilledLines = updatedLines.filter((l) => l.fulfil === 'dipenuhi');
-  const allFinished =
-    fulfilledLines.length > 0 &&
-    fulfilledLines.every((l) => l.lineState === 'terima' || l.lineState === 'batal');
-  const anyReceived = fulfilledLines.some((l) => l.lineState === 'terima');
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    lines: updatedLines,
-    state: allFinished ? (anyReceived ? 'sampai' : 'batal') : req.state,
-    arrivedAt: allFinished && anyReceived ? now : req.arrivedAt,
-  };
-
-  const newMovement: StockMovement = {
-    id: `mov-rcp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    partId: targetLine.partId,
-    partCode: targetLine.partId,
-    date: now,
-    type: 'masuk',
-    quantity: targetLine.qty,
-    reference: req.orderCode || req.id,
-    reason: `Penerimaan pesanan ${req.orderCode || req.id}`,
-    lineId: targetLine.id,
-    receiptToken,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-    stockMovements: [...state.stockMovements, newMovement],
-  });
-
-  return {
-    ok: true,
-    request: updatedReq,
-    line: updatedLines.find((l) => l.id === lineId),
-  };
-}
-
-export interface ReceiveHoOrderResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function receiveHoOrder(requestId: string): ReceiveHoOrderResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req || req.type !== 'ho') {
-    return { ok: false, error: 'Permintaan HO tidak ditemukan.' };
-  }
-
-  // Idempotent: if already arrived or finished, return existing
-  if (req.state === 'sampai' || req.state === 'selesai') {
-    return { ok: true, request: req };
-  }
-
-  if (req.state !== 'belum_sampai') {
-    return { ok: false, error: 'Permintaan HO tidak dalam status belum sampai.', request: req };
-  }
-
-  const now = formatNowTimestamp();
-  const hoReceiptToken = `horcp-${req.id}-${Date.now()}`;
-
-  const updatedLines = req.lines.map((l) =>
-    l.fulfil === 'dipenuhi'
-      ? {
-          ...l,
-          lineState: 'terima' as const,
-          receivedAt: now,
-          receiptToken: `${hoReceiptToken}-${l.id}`,
-        }
-      : l
-  );
-
-  const newMovements: StockMovement[] = updatedLines
-    .filter((l) => l.fulfil === 'dipenuhi' && l.qty > 0)
-    .map((l, idx) => ({
-      id: `mov-hoin-${Date.now()}-${idx + 1}`,
-      partId: l.partId,
-      partCode: l.partId,
-      date: now,
-      type: 'masuk' as const,
-      quantity: l.qty,
-      reference: req.orderCode || req.id,
-      reason: `Kedatangan barang HO ${req.orderCode || req.id}`,
-      lineId: l.id,
-      receiptToken: l.receiptToken,
-    }));
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'sampai',
-    arrivedAt: now,
-    lines: updatedLines,
-    hoReceiptToken,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-    stockMovements: [...state.stockMovements, ...newMovements],
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-export interface UndoReceiveResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function undoReceive(requestId: string, lineId?: string): UndoReceiveResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req) {
-    return { ok: false, error: 'Permintaan tidak ditemukan.' };
-  }
-
-  const now = formatNowTimestamp();
-
-  if (req.type === 'reguler') {
-    const targetLine = lineId
-      ? req.lines.find((l) => l.id === lineId)
-      : [...req.lines].reverse().find((l) => l.lineState === 'terima');
-
-    // Idempotent: if line is not in 'terima' state, change nothing and return existing
-    if (!targetLine || targetLine.lineState !== 'terima') {
-      return { ok: true, request: req };
-    }
-
-    const token = targetLine.receiptToken || `rcp-fallback-${req.id}-${targetLine.id}`;
-    const alreadyReversed = state.stockMovements.some(
-      (m) => m.type === 'koreksi' && m.receiptToken === token
-    );
-
-    const reversalMovements: StockMovement[] = alreadyReversed
-      ? []
-      : [
-          {
-            id: `mov-kor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            partId: targetLine.partId,
-            partCode: targetLine.partId,
-            date: now,
-            type: 'koreksi',
-            quantity: -targetLine.qty,
-            reference: req.orderCode || req.id,
-            reason: `Koreksi batal terima ${req.orderCode || req.id}`,
-            lineId: targetLine.id,
-            receiptToken: token,
-          },
-        ];
-
-    const updatedLines = req.lines.map((l) =>
-      l.id === targetLine.id
-        ? {
-            ...l,
-            lineState: 'belum' as const,
-            receivedAt: undefined,
-            receiptToken: undefined,
-          }
-        : l
-    );
-
-    const updatedReq: PurchaseRequest = {
-      ...req,
-      state: 'belum_sampai',
-      arrivedAt: undefined,
-      lines: updatedLines,
-    };
-
-    saveStore({
-      ...state,
-      purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-      stockMovements: [...state.stockMovements, ...reversalMovements],
-    });
-
-    return { ok: true, request: updatedReq };
-  }
-
-  // HO order undo
-  if (req.state !== 'sampai') {
-    return { ok: true, request: req };
-  }
-
-  const receivedLines = req.lines.filter(
-    (l) => l.fulfil === 'dipenuhi' && l.lineState === 'terima'
-  );
-
-  const reversalMovements: StockMovement[] = [];
-  receivedLines.forEach((l, idx) => {
-    const token = l.receiptToken || `horcp-fallback-${req.id}-${l.id}`;
-    const alreadyReversed = state.stockMovements.some(
-      (m) => m.type === 'koreksi' && m.receiptToken === token
-    );
-    if (!alreadyReversed) {
-      reversalMovements.push({
-        id: `mov-hokor-${Date.now()}-${idx + 1}`,
-        partId: l.partId,
-        partCode: l.partId,
-        date: now,
-        type: 'koreksi',
-        quantity: -l.qty,
-        reference: req.orderCode || req.id,
-        reason: `Koreksi batal approve HO ${req.orderCode || req.id}`,
-        lineId: l.id,
-        receiptToken: token,
-      });
-    }
-  });
-
-  const updatedLines = req.lines.map((l) =>
-    l.fulfil === 'dipenuhi'
-      ? {
-          ...l,
-          lineState: 'belum' as const,
-          receivedAt: undefined,
-          receiptToken: undefined,
-        }
-      : l
-  );
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'belum_sampai',
-    arrivedAt: undefined,
-    hoReceiptToken: undefined,
-    lines: updatedLines,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-    stockMovements: [...state.stockMovements, ...reversalMovements],
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-export interface CancelRegulerLineResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-  line?: PurchaseRequestLine;
-}
-
-export function cancelRegulerLine(
-  requestId: string,
-  lineId: string,
-  reason: string
-): CancelRegulerLineResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req || req.type !== 'reguler') {
-    return { ok: false, error: 'Permintaan reguler tidak ditemukan.' };
-  }
-
-  const targetLine = req.lines.find((l) => l.id === lineId);
-  if (!targetLine || targetLine.fulfil !== 'dipenuhi') {
-    return { ok: false, error: 'Baris part tidak ditemukan.' };
-  }
-
-  // Idempotent: if already cancelled, return existing
-  if (targetLine.lineState === 'batal') {
-    return { ok: true, request: req, line: targetLine };
-  }
-
-  if (targetLine.lineState === 'terima') {
-    return { ok: false, error: 'Part yang sudah diterima tidak dapat dibatalkan.' };
-  }
-
-  const trimmedReason = reason.trim();
-  if (!trimmedReason) {
-    return { ok: false, error: 'Alasan pembatalan wajib diisi.' };
-  }
-
-  const now = formatNowTimestamp();
-  const updatedLines = req.lines.map((l) =>
-    l.id === lineId
-      ? {
-          ...l,
-          lineState: 'batal' as const,
-          cancelReason: trimmedReason,
-        }
-      : l
-  );
-
-  const fulfilledLines = updatedLines.filter((l) => l.fulfil === 'dipenuhi');
-  const allFinished =
-    fulfilledLines.length > 0 &&
-    fulfilledLines.every((l) => l.lineState === 'terima' || l.lineState === 'batal');
-  const anyReceived = fulfilledLines.some((l) => l.lineState === 'terima');
-
-  let nextState = req.state;
-  let nextArrivedAt = req.arrivedAt;
-  let nextCloseReason = req.closeReason;
-  let nextClosedAt = req.closedAt;
-
-  if (allFinished) {
-    if (anyReceived) {
-      nextState = 'sampai';
-      nextArrivedAt = now;
-    } else {
-      nextState = 'batal';
-      nextCloseReason = trimmedReason;
-      nextClosedAt = now;
-    }
-  }
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: nextState,
-    arrivedAt: nextArrivedAt,
-    closeReason: nextCloseReason,
-    closedAt: nextClosedAt,
-    lines: updatedLines,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-  });
-
-  return {
-    ok: true,
-    request: updatedReq,
-    line: updatedLines.find((l) => l.id === lineId),
-  };
-}
-
-export interface CancelHoInput {
-  requestId: string;
-  reason: string;
-  phoneCode?: string;
-  emailCode?: string;
-  expectedPhoneCode?: string;
-  expectedEmailCode?: string;
-  pin: string;
-}
-
-export interface CancelHoResult {
-  ok: boolean;
-  error?: string;
-  field?: 'reason' | 'phoneCode' | 'emailCode' | 'pin';
-  request?: PurchaseRequest;
-}
-
-export function cancelHo(input: CancelHoInput): CancelHoResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === input.requestId);
-  if (!req || req.type !== 'ho') {
-    return { ok: false, error: 'Permintaan HO tidak ditemukan.' };
-  }
-
-  // Idempotent: if already cancelled, return existing without reversing stock twice
-  if (req.state === 'batal') {
-    return { ok: true, request: req };
-  }
-
-  if (req.state === 'selesai') {
-    return { ok: false, error: 'Permintaan HO sudah selesai diproses.', request: req };
-  }
-
-  const trimmedReason = input.reason.trim();
-  if (trimmedReason.length < 5) {
-    return {
-      ok: false,
-      error: 'Alasan pembatalan wajib diisi minimal 5 karakter.',
-      field: 'reason',
-    };
-  }
-
-  if (req.requesterKind === 'pelanggan') {
-    if (
-      input.expectedPhoneCode !== undefined &&
-      (input.phoneCode || '').trim() !== input.expectedPhoneCode.trim()
-    ) {
-      return { ok: false, error: 'Kode HP salah.', field: 'phoneCode' };
-    }
-    if (
-      input.expectedEmailCode !== undefined &&
-      (input.emailCode || '').trim() !== input.expectedEmailCode.trim()
-    ) {
-      return { ok: false, error: 'Kode email salah.', field: 'emailCode' };
-    }
-  }
-
-  // MOCK: verify on the server. Never check secrets in the browser.
-  const cleanPin = (input.pin || '').trim();
-  if (cleanPin !== DUMMY_ADMIN.pin && cleanPin !== DUMMY_ADMIN_LOGIN_PIN) {
-    return { ok: false, error: 'PIN salah.', field: 'pin' };
-  }
-
-  const now = formatNowTimestamp();
-  const reversalMovements: StockMovement[] = [];
-
-  if (req.state === 'sampai') {
-    const receivedLines = req.lines.filter(
-      (l) => l.fulfil === 'dipenuhi' && l.lineState === 'terima'
-    );
-    receivedLines.forEach((l, idx) => {
-      const token = l.receiptToken || `hocancel-${req.id}-${l.id}`;
-      const alreadyReversed = state.stockMovements.some(
-        (m) => m.type === 'koreksi' && m.receiptToken === token
-      );
-      if (!alreadyReversed) {
-        reversalMovements.push({
-          id: `mov-hocancel-${Date.now()}-${idx + 1}`,
-          partId: l.partId,
-          partCode: l.partId,
-          date: now,
-          type: 'koreksi',
-          quantity: -l.qty,
-          reference: req.orderCode || req.id,
-          reason: `Koreksi pembatalan HO ${req.orderCode || req.id}: ${trimmedReason}`,
-          lineId: l.id,
-          receiptToken: token,
-        });
-      }
-    });
-  }
-
-  const updatedLines = req.lines.map((l) => ({
-    ...l,
-    lineState: 'batal' as const,
-    cancelReason: trimmedReason,
-  }));
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'batal',
-    closeReason: trimmedReason,
-    closedAt: now,
-    lines: updatedLines,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-    stockMovements: [...state.stockMovements, ...reversalMovements],
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-export interface ProcessHoResult {
-  ok: boolean;
-  error?: string;
-  request?: PurchaseRequest;
-}
-
-export function processHo(requestId: string): ProcessHoResult {
-  const state = getAdminStore();
-  const req = state.purchaseRequests.find((r) => r.id === requestId);
-  if (!req || req.type !== 'ho') {
-    return { ok: false, error: 'Permintaan HO tidak ditemukan.' };
-  }
-
-  // Idempotent: if already selesai, return existing without deducting stock twice
-  if (req.state === 'selesai') {
-    return { ok: true, request: req };
-  }
-
-  if (req.state !== 'sampai') {
-    return {
-      ok: false,
-      error: 'Barang belum sampai. Approve di Pengelolaan Gudang, tab Akan Datang.',
-      request: req,
-    };
-  }
-
-  const now = formatNowTimestamp();
-  const processToken = req.hoProcessToken || `hoproc-${req.id}`;
-  const keluarMovements: StockMovement[] = [];
-
-  // Customer HO creates one "keluar_ho" movement per line; Workshop HO creates none.
-  if (req.requesterKind === 'pelanggan') {
-    const fulfilledLines = req.lines.filter((l) => l.fulfil === 'dipenuhi' && l.qty > 0);
-    fulfilledLines.forEach((l, idx) => {
-      const lineToken = `${processToken}-${l.id}`;
-      const alreadyOut = state.stockMovements.some(
-        (m) => m.type === 'keluar_ho' && m.receiptToken === lineToken
-      );
-      if (!alreadyOut) {
-        keluarMovements.push({
-          id: `mov-hoout-${Date.now()}-${idx + 1}`,
-          partId: l.partId,
-          partCode: l.partId,
-          date: now,
-          type: 'keluar_ho',
-          quantity: -l.qty,
-          reference: req.orderCode || req.id,
-          reason: `Penyerahan part HO pelanggan ${req.orderCode || req.id}`,
-          lineId: l.id,
-          receiptToken: lineToken,
-        });
-      }
-    });
-  }
-
-  const updatedReq: PurchaseRequest = {
-    ...req,
-    state: 'selesai',
-    processedAt: now,
-    hoProcessToken: processToken,
-  };
-
-  saveStore({
-    ...state,
-    purchaseRequests: state.purchaseRequests.map((r) => (r.id === req.id ? updatedReq : r)),
-    stockMovements: [...state.stockMovements, ...keluarMovements],
-  });
-
-  return { ok: true, request: updatedReq };
-}
-
-// -------------------------------------------------------------
 // GD-3 MASTER GUDANG ATOMIC PART OPERATIONS
 // -------------------------------------------------------------
 
 let lastMasterPartSig = '';
 let lastMasterPartCode = '';
+
+async function syncWarehousePartToSupabase(
+  part: Part,
+  stok: number,
+  catatan?: string | null,
+  actorRole?: string
+): Promise<void> {
+  try {
+    await supabase.rpc('upsert_warehouse_part', {
+      p_id: part.kode,
+      p_kode: part.kode,
+      p_nama: part.nama,
+      p_satuan: part.satuan,
+      p_jenis: part.jenis,
+      p_stok: Math.max(0, Math.round(stok)),
+      p_harga_beli: part.hargaBeli,
+      p_harga_jual: part.hargaJual,
+      p_stok_min: part.jenis === 'ho' ? null : (part.stokMin ?? 1),
+      p_catatan: catatan ?? null,
+      p_created_at: part.createdAt || null,
+      p_payload: part as unknown as Record<string, unknown>,
+      p_actor_role: actorRole || null,
+    });
+  } catch {
+    // fallback sync handled by shared_workshop_state
+  }
+}
 
 export interface CreateMasterPartInput {
   nama: string;
@@ -1650,6 +700,9 @@ export interface CreateMasterPartInput {
   stokMin?: number | null;
   catatan?: string;
   submissionId?: string;
+  byNama?: string;
+  byId?: string;
+  actorRole?: string;
 }
 
 export interface CreateMasterPartResult {
@@ -1718,16 +771,20 @@ export function createMasterPart(input: CreateMasterPartInput): CreateMasterPart
         ]
       : [];
 
+  const byNama = input.byNama || DUMMY_MASTER.nama;
+  const byId = input.byId || DUMMY_MASTER.id;
+  const trimmedCatatan = input.catatan?.trim() || 'Part baru ditambahkan';
+
   const historyRow: PartHistory = {
     id: `ph-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     partId: kode,
     at: now,
-    byNama: DUMMY_MASTER.nama,
-    byId: DUMMY_MASTER.id,
+    byNama,
+    byId,
     field: 'Part baru',
     oldValue: 'Tidak ada',
     newValue: `${kode} (${trimmedNama})`,
-    note: input.catatan?.trim() || 'Part baru ditambahkan',
+    note: trimmedCatatan,
   };
 
   lastMasterPartSig = sig;
@@ -1743,6 +800,8 @@ export function createMasterPart(input: CreateMasterPartInput): CreateMasterPart
     partChanges: nextHistory,
   });
 
+  void syncWarehousePartToSupabase(newPart, stokAwal, trimmedCatatan, input.actorRole);
+
   return { ok: true, part: newPart };
 }
 
@@ -1753,9 +812,11 @@ export interface EditMasterPartInput {
   hargaBeli: number;
   hargaJual: number;
   stokMin: number | null;
+  stokBaru?: number;
   note: string;
   byNama?: string;
   byId?: string;
+  actorRole?: string;
 }
 
 export interface EditMasterPartResult {
@@ -1793,6 +854,9 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
   const nextHargaJual = Math.max(0, Math.round(input.hargaJual));
   const nextStokMin =
     part.jenis === 'ho' ? null : Math.max(0, Math.round(input.stokMin ?? part.stokMin ?? 1));
+  const currentStok = computeStock(part, state.stockMovements);
+  const hasStockInput = typeof input.stokBaru === 'number' && !Number.isNaN(input.stokBaru);
+  const nextStok = hasStockInput ? Math.max(0, Math.round(input.stokBaru!)) : currentStok;
 
   const changes: { field: string; oldValue: string; newValue: string }[] = [];
 
@@ -1808,6 +872,13 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
       field: 'Satuan',
       oldValue: part.satuan,
       newValue: input.satuan,
+    });
+  }
+  if (hasStockInput && nextStok !== currentStok) {
+    changes.push({
+      field: 'Stok',
+      oldValue: String(currentStok),
+      newValue: String(nextStok),
     });
   }
   if (nextHargaBeli !== part.hargaBeli) {
@@ -1837,8 +908,25 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
   }
 
   const now = formatNowTimestamp();
-  const byNama = input.byNama || DUMMY_ADMIN.nama;
-  const byId = input.byId || DUMMY_ADMIN.id;
+  const byNama = input.byNama || DUMMY_MASTER.nama;
+  const byId = input.byId || DUMMY_MASTER.id;
+
+  const stockDelta = nextStok - currentStok;
+  const extraMovements: StockMovement[] =
+    hasStockInput && stockDelta !== 0
+      ? [
+          {
+            id: `mov-adj-${part.kode}-${Date.now()}`,
+            partId: part.kode,
+            partCode: part.kode,
+            date: now,
+            type: 'koreksi',
+            quantity: stockDelta,
+            reference: 'Edit Part',
+            reason: trimmedNote,
+          },
+        ]
+      : [];
 
   const newRows: PartHistory[] = [
     ...changes.map((c, idx) => ({
@@ -1881,14 +969,82 @@ export function editMasterPart(input: EditMasterPartInput): EditMasterPartResult
   saveStore({
     ...state,
     parts: state.parts.map((p) => (p.kode === part.kode ? updatedPart : p)),
+    stockMovements:
+      extraMovements.length > 0
+        ? [...state.stockMovements, ...extraMovements]
+        : state.stockMovements,
     partHistory: nextHistory,
     partChanges: nextHistory,
   });
+
+  void syncWarehousePartToSupabase(updatedPart, nextStok, trimmedNote, input.actorRole);
 
   return {
     ok: true,
     part: updatedPart,
     newHistoryIds: newRows.map((r) => r.id),
+  };
+}
+
+export interface DeleteMasterPartInput {
+  partId: string;
+  byNama?: string;
+  byId?: string;
+  actorRole?: string;
+}
+
+export interface DeleteMasterPartResult {
+  ok: boolean;
+  error?: string;
+  deletedKode?: string;
+}
+
+export function deleteMasterPart(input: DeleteMasterPartInput): DeleteMasterPartResult {
+  const state = getAdminStore();
+  const part = state.parts.find((p) => p.id === input.partId || p.kode === input.partId);
+  if (!part) {
+    return { ok: false, error: 'Part tidak ditemukan.' };
+  }
+
+  const now = formatNowTimestamp();
+  const byNama = input.byNama || DUMMY_MASTER.nama;
+  const byId = input.byId || DUMMY_MASTER.id;
+
+  const historyRow: PartHistory = {
+    id: `ph-del-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    partId: part.kode,
+    at: now,
+    byNama,
+    byId,
+    field: 'Hapus Part',
+    oldValue: `${part.kode} (${part.nama})`,
+    newValue: 'Dihapus',
+    note: `Part ${part.kode} dihapus oleh ${byNama}`,
+  };
+
+  const nextHistory = [historyRow, ...state.partHistory];
+
+  saveStore({
+    ...state,
+    parts: state.parts.filter((p) => p.kode !== part.kode && p.id !== part.id),
+    partHistory: nextHistory,
+    partChanges: nextHistory,
+  });
+
+  void (async () => {
+    try {
+      await supabase.rpc('delete_warehouse_part', {
+        p_part_id: part.kode,
+        p_actor_role: input.actorRole || null,
+      });
+    } catch {
+      // fallback handled by shared_workshop_state
+    }
+  })();
+
+  return {
+    ok: true,
+    deletedKode: part.kode,
   };
 }
 
@@ -3381,7 +2537,6 @@ interface AdminContextType extends PersistedAdminStore {
   updatePart: (code: string, updates: Partial<Part>) => void;
   addPartChange: (c: Omit<PartHistory, 'id'>) => PartHistory;
   getNextPartCode: () => string;
-  getNextPmtCode: () => string;
   addSale: (s: Omit<Sale, 'id'>) => Sale;
   updateAttendance: (id: string, updates: Partial<MechanicAttendance>) => void;
   addAttendanceCheckIn: (mechanicId: string, date: string, time: string) => void;
@@ -3426,20 +2581,10 @@ interface AdminContextType extends PersistedAdminStore {
   addMechanicRecord: typeof addMechanicRecord;
   deactivateMechanicRecord: typeof deactivateMechanicRecord;
 
-  // GD-0 operations
-  createRegulerRequest: typeof createRegulerRequest;
-  setLineFulfil: typeof setLineFulfil;
-  approveRegulerRequest: typeof approveRegulerRequest;
-  rejectRegulerRequest: typeof rejectRegulerRequest;
-  createHoRequest: typeof createHoRequest;
-  receiveLine: typeof receiveLine;
-  receiveHoOrder: typeof receiveHoOrder;
-  undoReceive: typeof undoReceive;
-  cancelRegulerLine: typeof cancelRegulerLine;
-  cancelHo: typeof cancelHo;
-  processHo: typeof processHo;
+  // GD-3 Master Gudang / Warehouse Part operations
   createMasterPart: typeof createMasterPart;
   editMasterPart: typeof editMasterPart;
+  deleteMasterPart: typeof deleteMasterPart;
 
   // POS operations
   getAvailableSalePartStock: typeof getAvailableSalePartStock;
@@ -4015,7 +3160,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updatePart,
         addPartChange,
         getNextPartCode,
-        getNextPmtCode,
         addSale,
         updateAttendance,
         addAttendanceCheckIn,
@@ -4045,19 +3189,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         assignMechanicToWorkOrder,
         addMechanicRecord,
         deactivateMechanicRecord,
-        createRegulerRequest,
-        setLineFulfil,
-        approveRegulerRequest,
-        rejectRegulerRequest,
-        createHoRequest,
-        receiveLine,
-        receiveHoOrder,
-        undoReceive,
-        cancelRegulerLine,
-        cancelHo,
-        processHo,
         createMasterPart,
         editMasterPart,
+        deleteMasterPart,
         getAvailableSalePartStock,
         validateSaleStock,
         completeCashSale,

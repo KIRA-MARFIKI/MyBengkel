@@ -571,15 +571,40 @@ export const HelpDeskCenter: React.FC = () => {
 
     let emailStatusNote = '';
     if (accFormSendEmail && credentialsChanged) {
-      try {
-        const { error: mailErr } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: `${window.location.origin}/login`,
+      const sendWithTimeout = async () => {
+        let timerId: number | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timerId = window.setTimeout(() => reject(new Error('Request timeout after 15000ms')), 15_000);
         });
-        emailStatusNote = mailErr
-          ? ' (Email reset terlewat karena batas laju SMTP; perubahan database sudah aktif).'
-          : ' & notifikasi email dikirim.';
-      } catch {
-        emailStatusNote = ' (Notifikasi email tertunda).';
+        try {
+          return await Promise.race([
+            supabase.auth.resetPasswordForEmail(cleanEmail, {
+              redirectTo: `${window.location.origin}/login`,
+            }),
+            timeoutPromise,
+          ]);
+        } finally {
+          if (timerId !== undefined) window.clearTimeout(timerId);
+        }
+      };
+
+      try {
+        const { error: mailErr } = await sendWithTimeout();
+        if (mailErr) {
+          const msg = String(mailErr.message || '').toLowerCase();
+          const st = String((mailErr as any).status ?? '');
+          if (st === '429' || msg.includes('rate limit') || msg.includes('too many requests')) {
+            emailStatusNote = ` (Email GAGAL dikirim: Rate Limit SMTP [${st || '429'}] - ${mailErr.message}; data DB tersimpan).`;
+          } else if (st === '500' || msg.includes('smtp') || msg.includes('error sending')) {
+            emailStatusNote = ` (Email GAGAL dikirim: Server SMTP menolak [${st || '500'}] - ${mailErr.message}; data DB tersimpan).`;
+          } else {
+            emailStatusNote = ` (Email GAGAL dikirim [${st || 'ERR'}]: ${mailErr.message}; data DB tersimpan).`;
+          }
+        } else {
+          emailStatusNote = ' & notifikasi email berhasil dikirim.';
+        }
+      } catch (err: any) {
+        emailStatusNote = ` (Email GAGAL dikirim: Koneksi terputus/timeout - ${String(err?.message || err)}; data DB tersimpan).`;
       }
     }
 

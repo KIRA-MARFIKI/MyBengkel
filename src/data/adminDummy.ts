@@ -96,61 +96,6 @@ export interface PartHistory {
 
 export type PartChangeRecord = PartHistory;
 
-export type PurchaseRequestType = 'reguler' | 'ho';
-export type PurchaseRequesterKind = 'bengkel' | 'pelanggan';
-export type PurchaseRequestState =
-  | 'diajukan'
-  | 'belum_sampai'
-  | 'sampai'
-  | 'selesai'
-  | 'ditolak'
-  | 'batal';
-
-export type LineFulfilState = 'dipenuhi' | 'tidak';
-export type PurchaseLineState = 'belum' | 'terima' | 'batal';
-
-export interface PurchaseRequestCustomer {
-  nama: string;
-  alamat: string;
-  noMesin: string;
-  noRangka: string;
-  hp: string;
-  email: string;
-}
-
-export interface PurchaseRequestLine {
-  id: string;
-  partId: string; // PRT-001
-  qty: number;
-  hargaPerkiraan: number;
-  fulfil: LineFulfilState;
-  lineState: PurchaseLineState;
-  receivedAt?: string;
-  cancelReason?: string;
-  receiptToken?: string;
-}
-
-export interface PurchaseRequest {
-  id: string; // PMT-0001
-  type: PurchaseRequestType;
-  requesterKind: PurchaseRequesterKind;
-  requesterName: string; // "Admin Gudang" or the customer name
-  customer?: PurchaseRequestCustomer; // pelanggan only
-  dp: number;
-  createdAt: string;
-  requestReason: string;
-  state: PurchaseRequestState;
-  orderCode?: string;
-  orderedAt?: string;
-  arrivedAt?: string;
-  processedAt?: string;
-  closeReason?: string;
-  closedAt?: string;
-  lines: PurchaseRequestLine[];
-  hoReceiptToken?: string;
-  hoProcessToken?: string;
-}
-
 export type BookingStatus = 'menunggu' | 'datang' | 'batal';
 export type BookingSource = 'online' | 'langsung';
 
@@ -518,49 +463,11 @@ export const computeAvailableSaleStock = (
   return Math.max(0, physical - reserved);
 };
 
-// Computed PurchaseRequest helpers (never stored)
-export const computeRequestTotalHarga = (pr: PurchaseRequest): number => {
-  const activeLines = pr.lines.filter((l) => l.fulfil === 'dipenuhi');
-  const source = activeLines.length > 0 ? activeLines : pr.lines;
-  return source.reduce((sum, l) => sum + l.qty * (l.hargaPerkiraan || 0), 0);
-};
-
-export const computeRequestSisaBayar = (pr: PurchaseRequest): number => {
-  return computeRequestTotalHarga(pr) - (pr.dp || 0);
-};
-
-export const computeRequestFulfilledQty = (pr: PurchaseRequest): number => {
-  return pr.lines
-    .filter((l) => l.fulfil === 'dipenuhi')
-    .reduce((sum, l) => sum + l.qty, 0);
-};
-
-export const getRequestStatusLabel = (
-  stateOrReq: PurchaseRequestState | Pick<PurchaseRequest, 'state'>
-): 'Belum sampai' | 'Sampai' | 'Selesai' | 'Ditolak' | 'Batal' => {
-  const state = typeof stateOrReq === 'string' ? stateOrReq : stateOrReq.state;
-  if (state === 'diajukan' || state === 'belum_sampai') return 'Belum sampai';
-  if (state === 'sampai') return 'Sampai';
-  if (state === 'selesai') return 'Selesai';
-  if (state === 'ditolak') return 'Ditolak';
-  return 'Batal';
-};
-
-export const getLineStatusLabel = (
-  stateOrLine: PurchaseLineState | Pick<PurchaseRequestLine, 'lineState'>
-): 'Terima' | 'Belum diterima' | 'Dibatalkan' => {
-  const lineState = typeof stateOrLine === 'string' ? stateOrLine : stateOrLine.lineState;
-  if (lineState === 'terima') return 'Terima';
-  if (lineState === 'batal') return 'Dibatalkan';
-  return 'Belum diterima';
-};
-
 // Initial data arrays (empty - ready for backend / Supabase data layer)
 export const initialMechanics: Mechanic[] = [];
 export const initialCustomers: Customer[] = [];
 export const initialVehicles: Vehicle[] = [];
 export const initialParts: Part[] = [];
-export const initialPurchaseRequests: PurchaseRequest[] = [];
 export const initialStockMovements: StockMovement[] = [];
 export const initialBookings: Booking[] = [];
 export const initialServiceForms: ServiceForm[] = [];

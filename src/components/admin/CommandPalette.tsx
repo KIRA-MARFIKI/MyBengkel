@@ -24,26 +24,25 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
-const PAGES: { label: string; to: string }[] = [
+const PAGES: { label: string; to: string; roles?: string[] }[] = [
   { label: 'Perlu ditangani', to: '/admin' },
   { label: 'Booking', to: '/admin/v1/booking' },
-  { label: 'Service Form', to: '/admin/v1/service-forms' },
+  { label: 'Service Form', to: '/admin/v1/service-forms', roles: ['admin'] },
   { label: 'Work Order', to: '/admin/v1/work-orders' },
   { label: 'Absen Mekanik', to: '/admin/v1/attendance' },
   { label: 'Laporan Servis', to: '/admin/laporan/servis' },
-  { label: 'Permintaan Penyediaan', to: '/admin/v2/purchase-requests' },
-  { label: 'Pengelolaan Gudang', to: '/admin/v2/warehouse' },
-  { label: 'Input Manual', to: '/admin/v2/manual-entries' },
-  { label: 'Master Gudang', to: '/admin/v2/master-gudang' },
+  { label: 'Stok Part', to: '/admin/v2/warehouse' },
+  { label: 'Input Part', to: '/admin/v2/input-part', roles: ['master_admin', 'master_helpdesk'] },
   { label: 'Penjualan', to: '/admin/penjualan' },
-  { label: 'Laporan Gudang', to: '/admin/laporan/gudang' },
+  { label: 'Laporan Gudang', to: '/admin/laporan/gudang', roles: ['master_admin', 'master_helpdesk'] },
   { label: 'Laporan Penjualan', to: '/admin/laporan/penjualan' },
-  { label: 'Help Desk', to: '/admin/helpdesk' },
+  { label: 'Help Desk', to: '/admin/helpdesk', roles: ['master_helpdesk'] },
 ];
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, role } = useAuth();
+  const visiblePages = PAGES.filter((p) => !p.roles || (role ? p.roles.includes(role) : false));
   const { vehicles, customers } = useAdmin();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -56,7 +55,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose })
 
   const items = useMemo<Item[]>(() => {
     const go = (to: string) => () => navigate(to);
-    const pages: Item[] = PAGES.filter((p) => !q || p.label.toLowerCase().includes(q)).map((p) => ({
+    const pages: Item[] = visiblePages.filter((p) => !q || p.label.toLowerCase().includes(q)).map((p) => ({
       id: `page-${p.to}`,
       group: 'Halaman',
       label: p.label,
@@ -65,9 +64,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose })
 
     const actions: Item[] = (
       [
-        { label: 'Booking baru', run: go('/admin/v1/booking?new=1') },
+        ...(role === 'admin' ? [{ label: 'Booking baru', run: go('/admin/v1/booking?new=1') }] : []),
         { label: 'Lihat booking menunggu', run: go('/admin/v1/booking?status=menunggu') },
-        { label: 'Lihat part stok kritis', run: go('/admin/v2/warehouse?view=part&filter=low') },
+        { label: 'Lihat part stok kritis', run: go('/admin/v2/warehouse?filter=low') },
         {
           label: 'Keluar',
           run: () => {
@@ -106,7 +105,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose })
       found = [...byPlate, ...byName].slice(0, 6);
     }
     return [...pages, ...actions, ...found];
-  }, [q, vehicles, customers, navigate, logout]);
+  }, [q, vehicles, customers, navigate, logout, visiblePages, role]);
 
   useEffect(() => {
     if (!open) return;

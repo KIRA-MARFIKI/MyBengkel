@@ -1,1208 +1,543 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  cancelRegulerLine,
-  receiveHoOrder,
-  receiveLine,
-  undoReceive,
-  useAdmin,
-} from '../../context/AdminContext';
+import { useAdmin } from '../../context/AdminContext';
+import { computeStock, Part } from '../../data/adminDummy';
 import { useAuth } from '../../lib/mockAuth';
-import {
-  Part,
-  PurchaseRequest,
-  PurchaseRequestLine,
-  computeRequestFulfilledQty,
-  computeStock,
-  getLineStatusLabel,
-  getRequestStatusLabel,
-} from '../../data/adminDummy';
+import { formatRupiah } from '../../lib/format';
+import { PageHeader } from '../../components/admin/PageHeader';
+import { KpiCard } from '../../components/admin/KpiCard';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { FilterTabs } from '../../components/admin/FilterTabs';
-import { FilterMenu } from '../../components/admin/FilterMenu';
+import { SearchField } from '../../components/admin/SearchField';
 import { StatusChip } from '../../components/admin/StatusChip';
-import {
-  ActionButton,
-  CheckIconButton,
-  EyeIconButton,
-  PrinterIconButton,
-  SearchIconButton,
-  XIconButton,
-} from '../../components/admin/ActionButton';
 import { SidePanel } from '../../components/admin/SidePanel';
-import { ExpandableSearch } from '../../components/admin/ExpandableSearch';
-import { CancelReasonPanel } from '../../components/admin/CancelReasonPanel';
-import {
-  CancelHoDialog,
-  RequestEyeDialog,
-  printHoDocument,
-} from '../../components/admin/GudangModals';
-import {
-  setLastTriggerElement,
-  useActionIsland,
-} from '../../components/admin/island/IslandSystem';
-import { formatRupiah } from '../../lib/format';
+import { CenterDialog } from '../../components/admin/CenterDialog';
+import { FormField } from '../../components/admin/FormField';
+import { ActionButton, PencilIcon, PlusIcon, TrashIcon } from '../../components/admin/ActionButton';
+import { useActionIsland } from '../../components/admin/island/IslandSystem';
 
-type WarehouseTab = 'Semua' | 'Akan Datang' | 'Disetujui' | 'Ditolak';
-type SemuaSubToggle = 'pemesanan' | 'part';
-type AkanDatangSubToggle = 'reguler' | 'ho';
-type PartFilterKey = 'all' | 'low' | 'ho_fulfilled';
+type StockFilterKey = 'all' | 'low' | 'reguler' | 'ho';
 
-interface RegulerOrderLineRow {
-  rowKey: string;
-  request: PurchaseRequest;
-  line: PurchaseRequestLine;
-  part: Part | undefined;
-}
+const SATUAN_OPTIONS = ['pcs', 'botol', 'set', 'liter', 'buah', 'meter'];
 
-const PART_FILTER_OPTIONS = [
-  { value: 'all', label: 'Semua' },
-  { value: 'low', label: 'Di bawah minimum' },
-  { value: 'ho_fulfilled', label: 'Jenis HO terpenuhi' },
-];
-
-export function computePartRequestDates(
-  part: Part,
-  purchaseRequests: PurchaseRequest[]
-): { latestRequestDate: string; latestReceivedDate: string } {
-  let latestReq = '';
-  let latestRec = '';
-
-  for (const req of purchaseRequests) {
-    const matchingLines = req.lines.filter(
-      (l) => l.partId === part.id || l.partId === part.kode
-    );
-    if (matchingLines.length > 0) {
-      if (!latestReq || req.createdAt > latestReq) {
-        latestReq = req.createdAt;
-      }
-      for (const l of matchingLines) {
-        const recAt =
-          l.receivedAt || (l.lineState === 'terima' ? req.arrivedAt || '' : '');
-        if (recAt && (!latestRec || recAt > latestRec)) {
-          latestRec = recAt;
-        }
-      }
-    }
-  }
-
-  return {
-    latestRequestDate: latestReq || 'Belum ada',
-    latestReceivedDate: latestRec || 'Belum ada',
-  };
-}
-
-export function hasReceivedLineForPart(
-  part: Part,
-  purchaseRequests: PurchaseRequest[]
-): boolean {
-  for (const req of purchaseRequests) {
-    for (const l of req.lines) {
-      if (
-        (l.partId === part.id || l.partId === part.kode) &&
-        l.lineState === 'terima'
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+const isCriticalStock = (part: Part, stok: number): boolean =>
+  part.jenis === 'reguler' && stok <= (part.stokMin ?? 0);
 
 const V2Warehouse: React.FC = () => {
-  const [params, setParams] = useSearchParams();
-  const { role } = useAuth();
-  const { parts, stockMovements, purchaseRequests } = useAdmin();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFilter = (searchParams.get('filter') === 'low' ? 'low' : 'all') as StockFilterKey;
+
+  const { parts, stockMovements, partHistory, editMasterPart, deleteMasterPart, recordAuditEvent } =
+    useAdmin();
+  const { role, user } = useAuth();
   const { notify } = useActionIsland();
-  const canExecuteWarehouse = role === 'master_admin';
 
-  const initialTabParam = params.get('tab');
-  const initialTab: WarehouseTab =
-    initialTabParam === 'Akan Datang' ||
-    initialTabParam === 'Disetujui' ||
-    initialTabParam === 'Ditolak'
-      ? initialTabParam
-      : 'Semua';
+  const canManageWarehouse = role === 'master_admin' || role === 'master_helpdesk';
+  const actorName =
+    user?.name ||
+    user?.email ||
+    (role === 'master_helpdesk'
+      ? 'Master Helpdesk'
+      : role === 'master_admin'
+        ? 'Master Admin'
+        : 'Admin Bengkel');
+  const actorId =
+    user?.roleCode ||
+    (role === 'master_helpdesk' ? 'HD-001' : role === 'master_admin' ? 'MG-001' : 'AD-001');
+  const auditRole = role === 'master_helpdesk' ? 'master_helpdesk' : role === 'master_admin' ? 'master_admin' : 'admin';
 
-  const [tab, setTab] = useState<WarehouseTab>(initialTab);
-  const [semuaSub, setSemuaSub] = useState<SemuaSubToggle>(
-    params.get('view') === 'part' ? 'part' : 'pemesanan'
-  );
-  const [akanDatangSub, setAkanDatangSub] = useState<AkanDatangSubToggle>('reguler');
+  const [filterTab, setFilterTab] = useState<StockFilterKey>(initialFilter);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [detailPartKode, setDetailPartKode] = useState<string | null>(null);
 
-  const [partFilter, setPartFilter] = useState<PartFilterKey>(
-    params.get('filter') === 'low' ? 'low' : 'all'
-  );
-  const [searchOpen, setSearchOpen] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [editPartTarget, setEditPartTarget] = useState<Part | null>(null);
+  const [editNama, setEditNama] = useState('');
+  const [editSatuan, setEditSatuan] = useState('pcs');
+  const [editStok, setEditStok] = useState('0');
+  const [editStokMin, setEditStokMin] = useState('1');
+  const [editHargaBeli, setEditHargaBeli] = useState('0');
+  const [editHargaJual, setEditHargaJual] = useState('0');
+  const [editNote, setEditNote] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
 
-  const [selectedPartCode, setSelectedPartCode] = useState<string | null>(null);
-  const [eyeRequestId, setEyeRequestId] = useState<string | null>(null);
-  const [cancelLineTarget, setCancelLineTarget] = useState<RegulerOrderLineRow | null>(
-    null
-  );
-  const [cancelHoTargetId, setCancelHoTargetId] = useState<string | null>(null);
-  const [flashRowId, setFlashRowId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const t = params.get('tab');
-    if (t === 'Akan Datang' || t === 'Disetujui' || t === 'Ditolak' || t === 'Semua') {
-      setTab(t);
-    }
-    if (params.get('view') === 'part') {
-      setTab('Semua');
-      setSemuaSub('part');
-    }
-    if (params.get('filter') === 'low') {
-      setPartFilter('low');
-    }
-  }, [params]);
+  const [deleteTarget, setDeleteTarget] = useState<Part | null>(null);
 
   useEffect(() => {
-    if (searchOpen) {
-      const id = window.setTimeout(() => searchInputRef.current?.focus(), 20);
-      return () => window.clearTimeout(id);
+    const paramFilter = searchParams.get('filter');
+    if (paramFilter === 'low') {
+      setFilterTab('low');
     }
-  }, [searchOpen]);
+  }, [searchParams]);
 
-  const triggerFlash = (id: string) => {
-    setFlashRowId(id);
-    window.setTimeout(() => {
-      setFlashRowId((cur) => (cur === id ? null : cur));
-    }, 800);
+  const handleFilterChange = (val: string) => {
+    const next = (val === 'low' || val === 'reguler' || val === 'ho' ? val : 'all') as StockFilterKey;
+    setFilterTab(next);
+    if (next === 'low') {
+      setSearchParams({ filter: 'low' }, { replace: true });
+    } else if (searchParams.has('filter')) {
+      setSearchParams({}, { replace: true });
+    }
   };
 
-  const partMap = useMemo(() => {
-    const m = new Map<string, Part>();
-    for (const p of parts) {
-      m.set(p.id, p);
-      m.set(p.kode, p);
-    }
-    return m;
-  }, [parts]);
+  const stockRows = useMemo(() => {
+    return parts.map((p) => {
+      const stok = computeStock(p, stockMovements);
+      return {
+        part: p,
+        stok,
+        critical: isCriticalStock(p, stok),
+      };
+    });
+  }, [parts, stockMovements]);
 
-  const selectedPart = useMemo(
-    () => parts.find((p) => p.kode === selectedPartCode || p.id === selectedPartCode) ?? null,
-    [parts, selectedPartCode]
+  const totalCount = stockRows.length;
+  const lowCount = useMemo(() => stockRows.filter((r) => r.critical).length, [stockRows]);
+  const regulerCount = useMemo(
+    () => stockRows.filter((r) => r.part.jenis === 'reguler').length,
+    [stockRows]
   );
+  const hoCount = useMemo(() => stockRows.filter((r) => r.part.jenis === 'ho').length, [stockRows]);
 
-  const eyeRequest = useMemo(
-    () => purchaseRequests.find((r) => r.id === eyeRequestId) ?? null,
-    [purchaseRequests, eyeRequestId]
-  );
-
-  const cancelHoTarget = useMemo(
-    () => purchaseRequests.find((r) => r.id === cancelHoTargetId) ?? null,
-    [purchaseRequests, cancelHoTargetId]
-  );
-
-  // 1. Semua -> Semua pemesanan (requests that have an orderCode)
-  const semuaPemesananRows = useMemo(
-    () => purchaseRequests.filter((r) => Boolean(r.orderCode)),
-    [purchaseRequests]
-  );
-
-  // 2. Semua -> Semua part (with search & filter)
   const filteredParts = useMemo(() => {
-    let base = parts;
-    if (partFilter === 'low') {
-      base = base.filter(
-        (p) =>
-          p.jenis === 'reguler' &&
-          p.stokMin !== null &&
-          computeStock(p, stockMovements) < p.stokMin
-      );
-    } else if (partFilter === 'ho_fulfilled') {
-      base = base.filter(
-        (p) => p.jenis === 'ho' && hasReceivedLineForPart(p, purchaseRequests)
-      );
-    }
-
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter(
-      (p) =>
-        p.kode.toLowerCase().includes(q) || p.nama.toLowerCase().includes(q)
-    );
-  }, [parts, partFilter, searchQuery, stockMovements, purchaseRequests]);
+    return stockRows
+      .filter((row) => {
+        if (filterTab === 'low' && !row.critical) return false;
+        if (filterTab === 'reguler' && row.part.jenis !== 'reguler') return false;
+        if (filterTab === 'ho' && row.part.jenis !== 'ho') return false;
+        if (!q) return true;
+        return (
+          row.part.kode.toLowerCase().includes(q) ||
+          row.part.nama.toLowerCase().includes(q) ||
+          row.part.satuan.toLowerCase().includes(q)
+        );
+      })
+      .map((row) => row.part);
+  }, [stockRows, filterTab, searchQuery]);
 
-  // 3. Akan Datang -> Reguler (lines of Reguler orders that are not finished: state === 'belum_sampai')
-  const akanDatangRegulerRows = useMemo<RegulerOrderLineRow[]>(() => {
-    const rows: RegulerOrderLineRow[] = [];
-    for (const req of purchaseRequests) {
-      if (req.type !== 'reguler' || req.state !== 'belum_sampai') continue;
-      for (const line of req.lines) {
-        if (line.fulfil !== 'dipenuhi') continue;
-        rows.push({
-          rowKey: `${req.id}::${line.id}`,
-          request: req,
-          line,
-          part: partMap.get(line.partId),
-        });
-      }
-    }
-    return rows;
-  }, [purchaseRequests, partMap]);
-
-  // 4. Akan Datang -> HO (HO orders in belum_sampai)
-  const akanDatangHoRows = useMemo(
-    () => purchaseRequests.filter((r) => r.type === 'ho' && r.state === 'belum_sampai'),
-    [purchaseRequests]
+  const detailPart = useMemo(
+    () => (detailPartKode ? parts.find((p) => p.kode === detailPartKode) ?? null : null),
+    [parts, detailPartKode]
   );
 
-  // 5. Disetujui (Orders that have arrived: state === 'sampai' || state === 'selesai')
-  const disetujuiRows = useMemo(
-    () =>
-      purchaseRequests.filter(
-        (r) => Boolean(r.orderCode) && (r.state === 'sampai' || r.state === 'selesai')
-      ),
-    [purchaseRequests]
+  const detailHistory = useMemo(
+    () => (detailPart ? partHistory.filter((h) => h.partId === detailPart.kode).slice(0, 8) : []),
+    [detailPart, partHistory]
   );
 
-  // 6. Ditolak (Rejected requests and cancelled orders: state === 'ditolak' || state === 'batal')
-  const ditolakRows = useMemo(
-    () => purchaseRequests.filter((r) => r.state === 'ditolak' || r.state === 'batal'),
-    [purchaseRequests]
-  );
-
-  const akanDatangTotalCount = akanDatangRegulerRows.length + akanDatangHoRows.length;
-
-  const getPartStatusLabel = (p: Part): 'Kritis' | 'Aman' | 'HO' => {
-    if (p.jenis === 'ho') return 'HO';
-    const stk = computeStock(p, stockMovements);
-    return p.stokMin !== null && stk < p.stokMin ? 'Kritis' : 'Aman';
+  const openEditPanel = (part: Part) => {
+    if (!canManageWarehouse) return;
+    const currentStok = computeStock(part, stockMovements);
+    setDetailPartKode(null);
+    setEditPartTarget(part);
+    setEditNama(part.nama);
+    setEditSatuan(part.satuan || 'pcs');
+    setEditStok(String(currentStok));
+    setEditStokMin(String(part.stokMin ?? 1));
+    setEditHargaBeli(String(part.hargaBeli ?? 0));
+    setEditHargaJual(String(part.hargaJual ?? 0));
+    setEditNote('');
+    setEditError(null);
   };
 
-  const getOrderLatestReceiptDate = (r: PurchaseRequest): string => {
-    if (r.arrivedAt) return r.arrivedAt;
-    let latest = '';
-    for (const l of r.lines) {
-      if (l.receivedAt && (!latest || l.receivedAt > latest)) {
-        latest = l.receivedAt;
-      }
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPartTarget || !canManageWarehouse) return;
+    setEditError(null);
+
+    const parsedStok = Number(editStok);
+    const parsedBeli = Number(editHargaBeli);
+    const parsedJual = Number(editHargaJual);
+    const parsedMin = editPartTarget.jenis === 'ho' ? null : Number(editStokMin);
+
+    if (Number.isNaN(parsedStok) || parsedStok < 0) {
+      setEditError('Stok tidak boleh kurang dari 0.');
+      return;
     }
-    return latest || 'Belum ada';
+    if (Number.isNaN(parsedBeli) || parsedBeli < 0 || Number.isNaN(parsedJual) || parsedJual < 0) {
+      setEditError('Harga beli dan harga jual harus bernilai 0 atau lebih.');
+      return;
+    }
+    if (editPartTarget.jenis === 'reguler' && (parsedMin === null || Number.isNaN(parsedMin) || parsedMin < 0)) {
+      setEditError('Stok minimum wajib diisi (minimal 0).');
+      return;
+    }
+
+    const res = editMasterPart({
+      partId: editPartTarget.kode,
+      nama: editNama,
+      satuan: editSatuan,
+      stokBaru: parsedStok,
+      hargaBeli: parsedBeli,
+      hargaJual: parsedJual,
+      stokMin: parsedMin,
+      note: editNote,
+      byNama: actorName,
+      byId: actorId,
+      actorRole: role || undefined,
+    });
+
+    if (!res.ok) {
+      setEditError(res.error || 'Gagal menyimpan perubahan part.');
+      return;
+    }
+
+    recordAuditEvent({
+      actorId,
+      actorName,
+      actorRole: auditRole,
+      event: 'part_updated',
+      category: 'bisnis',
+      module: 'gudang',
+      action: `Mengubah data part ${editPartTarget.kode} (${editNama.trim()})`,
+      entityType: 'Part',
+      entityId: editPartTarget.kode,
+      reason: editNote.trim(),
+      outcome: 'berhasil',
+    });
+
+    notify(`Data part ${editPartTarget.kode} berhasil diperbarui.`);
+    setEditPartTarget(null);
   };
 
-  // Columns: Semua pemesanan
-  // Kode pemesanan, Jenis (Reguler or HO), Nama (HO customer name; "Tidak berlaku" otherwise), Status (Belum sampai, Sampai, Selesai, Batal), Tanggal pesan, Tanggal terima, Aksi
-  const semuaPemesananCols: Column<PurchaseRequest>[] = [
+  const handleConfirmDelete = () => {
+    if (!deleteTarget || !canManageWarehouse) return;
+    const res = deleteMasterPart({
+      partId: deleteTarget.kode,
+      byNama: actorName,
+      byId: actorId,
+      actorRole: role || undefined,
+    });
+    if (!res.ok) {
+      notify(res.error || 'Gagal menghapus part.');
+      setDeleteTarget(null);
+      return;
+    }
+
+    recordAuditEvent({
+      actorId,
+      actorName,
+      actorRole: auditRole,
+      event: 'part_deleted',
+      category: 'bisnis',
+      module: 'gudang',
+      action: `Menghapus part ${deleteTarget.kode} (${deleteTarget.nama})`,
+      entityType: 'Part',
+      entityId: deleteTarget.kode,
+      outcome: 'berhasil',
+    });
+
+    notify(`Part ${deleteTarget.kode} berhasil dihapus dari database.`);
+    if (detailPartKode === deleteTarget.kode) {
+      setDetailPartKode(null);
+    }
+    setDeleteTarget(null);
+  };
+
+  const columns: Column<Part>[] = [
     {
-      key: 'orderCode',
-      header: 'Kode pemesanan',
-      render: (r) => (
-        <samp className="font-mono font-semibold text-[#1E2230]">
-          {r.orderCode || r.id}
-        </samp>
+      key: 'kode',
+      header: 'Kode Part',
+      identity: true,
+      render: (p) => <span className="font-mono text-[13px] font-semibold text-[#1E2230]">{p.kode}</span>,
+    },
+    {
+      key: 'nama',
+      header: 'Nama Part',
+      render: (p) => (
+        <div className="min-w-[160px]">
+          <div className="font-medium text-[#1E2230]">{p.nama}</div>
+          <div className="text-[12px] text-[#646B7C]">{p.satuan}</div>
+        </div>
       ),
     },
     {
       key: 'jenis',
       header: 'Jenis',
-      render: (r) => <StatusChip status={r.type === 'ho' ? 'HO' : 'Reguler'} />,
+      isStatus: true,
+      render: (p) => <StatusChip status={p.jenis} />,
     },
-    {
-      key: 'nama',
-      header: 'Nama',
-      render: (r) => (
-        <span className="text-[#1E2230]">
-          {r.type === 'ho' && r.requesterKind === 'pelanggan'
-            ? r.customer?.nama || r.requesterName
-            : 'Tidak berlaku'}
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (r) => <StatusChip status={getRequestStatusLabel(r)} />,
-    },
-    {
-      key: 'orderedAt',
-      header: 'Tanggal pesan',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {r.orderedAt || r.createdAt}
-        </span>
-      ),
-    },
-    {
-      key: 'receivedAt',
-      header: 'Tanggal terima',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {getOrderLatestReceiptDate(r)}
-        </span>
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (r) => (
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-          <EyeIconButton
-            ariaLabel={`Lihat pemesanan ${r.orderCode || r.id}`}
-            title="Lihat detail"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLastTriggerElement(e.currentTarget);
-              setEyeRequestId(r.id);
-            }}
-          />
-        </div>
-      ),
-    },
-  ];
-
-  // Columns: Semua part
-  // Kode part, Nama part, Satuan, Stok, Harga beli, Harga jual, Status, Tanggal permintaan, Tanggal terima
-  const semuaPartCols: Column<Part>[] = [
-    {
-      key: 'kode',
-      header: 'Kode part',
-      render: (p) => <samp className="font-mono font-semibold text-[#1E2230]">{p.kode}</samp>,
-    },
-    {
-      key: 'nama',
-      header: 'Nama part',
-      render: (p) => <span className="font-medium text-[#1E2230]">{p.nama}</span>,
-    },
-    { key: 'satuan', header: 'Satuan' },
     {
       key: 'stok',
-      header: 'Stok',
+      header: 'Stok Saat Ini',
       align: 'right',
       render: (p) => {
-        const stk = computeStock(p, stockMovements);
+        const stok = computeStock(p, stockMovements);
         return (
-          <data value={stk} className="tabular-nums font-semibold">
-            {stk}
-          </data>
+          <span className="font-semibold tabular-nums text-[#1E2230]">
+            {stok} <span className="font-normal text-[#646B7C] text-[12px]">{p.satuan}</span>
+          </span>
         );
       },
+    },
+    {
+      key: 'stokMin',
+      header: 'Stok Minimum',
+      align: 'right',
+      mobileHidden: true,
+      render: (p) => (
+        <span className="tabular-nums text-[#646B7C]">
+          {p.jenis === 'ho' ? 'Sesuai pesanan HO' : `${p.stokMin ?? 0} ${p.satuan}`}
+        </span>
+      ),
     },
     {
       key: 'hargaBeli',
-      header: 'Harga beli',
+      header: 'Harga Beli',
       align: 'right',
-      render: (p) => (
-        <data value={p.hargaBeli} className="tabular-nums font-medium">
-          {formatRupiah(p.hargaBeli)}
-        </data>
-      ),
+      mobileHidden: true,
+      render: (p) => <span className="tabular-nums text-[#646B7C]">{formatRupiah(p.hargaBeli)}</span>,
     },
     {
       key: 'hargaJual',
-      header: 'Harga jual',
+      header: 'Harga Jual',
       align: 'right',
-      render: (p) => (
-        <data value={p.hargaJual} className="tabular-nums font-medium">
-          {formatRupiah(p.hargaJual)}
-        </data>
-      ),
+      render: (p) => <span className="font-medium tabular-nums text-[#1E2230]">{formatRupiah(p.hargaJual)}</span>,
     },
     {
       key: 'status',
-      header: 'Status',
-      render: (p) => <StatusChip status={getPartStatusLabel(p)} />,
-    },
-    {
-      key: 'tanggalPermintaan',
-      header: 'Tanggal permintaan',
+      header: 'Status Stok',
+      isStatus: true,
       render: (p) => {
-        const dates = computePartRequestDates(p, purchaseRequests);
-        return (
-          <span className="font-mono text-[13px] text-[#646B7C]">
-            {dates.latestRequestDate}
-          </span>
-        );
+        const stok = computeStock(p, stockMovements);
+        const critical = isCriticalStock(p, stok);
+        return <StatusChip status={critical ? 'Kritis' : 'Aman'} needsAction={critical} />;
       },
     },
-    {
-      key: 'tanggalTerima',
-      header: 'Tanggal terima',
-      render: (p) => {
-        const dates = computePartRequestDates(p, purchaseRequests);
-        return (
-          <span className="font-mono text-[13px] text-[#646B7C]">
-            {dates.latestReceivedDate}
-          </span>
-        );
-      },
-    },
+    ...(canManageWarehouse
+      ? [
+          {
+            key: 'aksi',
+            header: 'Aksi',
+            align: 'right' as const,
+            render: (p: Part) => (
+              <div
+                className="inline-flex items-center justify-end gap-1.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ActionButton
+                  intent="wait"
+                  icon={<PencilIcon size={15} />}
+                  onClick={() => openEditPanel(p)}
+                  ariaLabel={`Edit part ${p.kode}`}
+                >
+                  Edit Part
+                </ActionButton>
+                <ActionButton
+                  intent="cancel"
+                  icon={<TrashIcon size={15} />}
+                  onClick={() => setDeleteTarget(p)}
+                  ariaLabel={`Hapus part ${p.kode}`}
+                >
+                  Hapus Part
+                </ActionButton>
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
-
-  // Columns: Akan Datang -> Reguler
-  // Kode pemesanan, Kode part, Nama part, Satuan, Stok, Jenis (the part's jenis), Status, Tanggal pemesanan, Tanggal diterima, Aksi
-  const akanDatangRegulerCols: Column<RegulerOrderLineRow>[] = [
-    {
-      key: 'orderCode',
-      header: 'Kode pemesanan',
-      render: (row) => (
-        <samp className="font-mono font-semibold text-[#1E2230]">
-          {row.request.orderCode || row.request.id}
-        </samp>
-      ),
-    },
-    {
-      key: 'kodePart',
-      header: 'Kode part',
-      render: (row) => (
-        <samp className="font-mono font-medium text-[#1E2230]">
-          {row.part?.kode || row.line.partId}
-        </samp>
-      ),
-    },
-    {
-      key: 'namaPart',
-      header: 'Nama part',
-      render: (row) => (
-        <span className="font-medium text-[#1E2230]">
-          {row.part?.nama || row.line.partId}
-        </span>
-      ),
-    },
-    {
-      key: 'satuan',
-      header: 'Satuan',
-      render: (row) => <span>{row.part?.satuan || 'pcs'}</span>,
-    },
-    {
-      key: 'stok',
-      header: 'Stok',
-      align: 'right',
-      render: (row) => {
-        const stk = row.part ? computeStock(row.part, stockMovements) : 0;
-        return (
-          <data value={stk} className="tabular-nums font-semibold">
-            {stk}
-          </data>
-        );
-      },
-    },
-    {
-      key: 'jenis',
-      header: 'Jenis',
-      render: (row) => (
-        <StatusChip status={row.part?.jenis === 'ho' ? 'HO' : 'Reguler'} />
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) => <StatusChip status={getLineStatusLabel(row.line)} />,
-    },
-    {
-      key: 'orderedAt',
-      header: 'Tanggal pemesanan',
-      render: (row) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {row.request.orderedAt || row.request.createdAt}
-        </span>
-      ),
-    },
-    {
-      key: 'receivedAt',
-      header: 'Tanggal diterima',
-      render: (row) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {row.line.receivedAt || 'Belum ada'}
-        </span>
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (row) => {
-        if (row.line.lineState !== 'belum') {
-          return null;
-        }
-        if (!canExecuteWarehouse) {
-          return <span className="text-[12px] text-[#646B7C]">Menunggu Master Gudang</span>;
-        }
-        const partName = row.part?.nama || row.line.partId;
-        return (
-          <div
-            className="flex items-center justify-end gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <CheckIconButton
-              ariaLabel={`Terima ${partName}`}
-              title="Terima"
-              onClick={(e) => {
-                e.stopPropagation();
-                const res = receiveLine(row.request.id, row.line.id);
-                if (!res.ok) return;
-                triggerFlash(row.rowKey);
-                notify(`${partName} diterima.`, {
-                  actionLabel: 'Batalkan',
-                  onAction: () => {
-                    undoReceive(row.request.id, row.line.id);
-                  },
-                  durationMs: 4000,
-                });
-              }}
-            />
-            <XIconButton
-              ariaLabel={`Batalkan pesanan ${partName}`}
-              title="Batalkan pesanan"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLastTriggerElement(e.currentTarget);
-                setCancelLineTarget(row);
-              }}
-            />
-          </div>
-        );
-      },
-    },
-  ];
-
-  // Columns: Akan Datang -> HO
-  // Kode pemesanan, Nama, Nomor HP, Alamat, Tanggal pesan, Tanggal sampai, Aksi
-  const akanDatangHoCols: Column<PurchaseRequest>[] = [
-    {
-      key: 'orderCode',
-      header: 'Kode pemesanan',
-      render: (r) => (
-        <samp className="font-mono font-semibold text-[#1E2230]">
-          {r.orderCode || r.id}
-        </samp>
-      ),
-    },
-    {
-      key: 'nama',
-      header: 'Nama',
-      render: (r) => (
-        <span className="font-medium text-[#1E2230]">
-          {r.requesterKind === 'bengkel'
-            ? 'Bengkel'
-            : r.customer?.nama || r.requesterName}
-        </span>
-      ),
-    },
-    {
-      key: 'hp',
-      header: 'Nomor HP',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#1E2230]">
-          {r.requesterKind === 'bengkel'
-            ? 'Tidak berlaku'
-            : r.customer?.hp || 'Tidak berlaku'}
-        </span>
-      ),
-    },
-    {
-      key: 'alamat',
-      header: 'Alamat',
-      render: (r) => (
-        <span className="text-[13px] text-[#1E2230]">
-          {r.requesterKind === 'bengkel'
-            ? 'Tidak berlaku'
-            : r.customer?.alamat || 'Tidak berlaku'}
-        </span>
-      ),
-    },
-    {
-      key: 'orderedAt',
-      header: 'Tanggal pesan',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {r.orderedAt || r.createdAt}
-        </span>
-      ),
-    },
-    {
-      key: 'arrivedAt',
-      header: 'Tanggal sampai',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {r.arrivedAt || 'Belum sampai'}
-        </span>
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (r) => {
-        if (!canExecuteWarehouse) {
-          return <span className="text-[12px] text-[#646B7C]">Menunggu Master Gudang</span>;
-        }
-        const orderCode = r.orderCode || r.id;
-        return (
-          <div
-            className="flex items-center justify-end gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <CheckIconButton
-              ariaLabel={`Approve ${orderCode}`}
-              title="Approve"
-              onClick={(e) => {
-                e.stopPropagation();
-                const res = receiveHoOrder(r.id);
-                if (!res.ok) return;
-                triggerFlash(r.id);
-                notify(`${orderCode} sampai. Proses di Permintaan HO.`, {
-                  actionLabel: 'Batalkan',
-                  onAction: () => {
-                    undoReceive(r.id);
-                  },
-                  durationMs: 4000,
-                });
-              }}
-            />
-            <XIconButton
-              ariaLabel={`Batal ${orderCode}`}
-              title="Batal"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLastTriggerElement(e.currentTarget);
-                setCancelHoTargetId(r.id);
-              }}
-            />
-          </div>
-        );
-      },
-    },
-  ];
-
-  // Columns: Disetujui
-  // Kode pemesanan, Jenis, Nama, Jumlah, Status (Sampai or Selesai), Tanggal pesan, Tanggal sampai, Aksi (eye)
-  const disetujuiCols: Column<PurchaseRequest>[] = [
-    {
-      key: 'orderCode',
-      header: 'Kode pemesanan',
-      render: (r) => (
-        <samp className="font-mono font-semibold text-[#1E2230]">
-          {r.orderCode || r.id}
-        </samp>
-      ),
-    },
-    {
-      key: 'jenis',
-      header: 'Jenis',
-      render: (r) => <StatusChip status={r.type === 'ho' ? 'HO' : 'Reguler'} />,
-    },
-    {
-      key: 'nama',
-      header: 'Nama',
-      render: (r) => (
-        <span className="text-[#1E2230]">
-          {r.type === 'ho'
-            ? r.requesterKind === 'pelanggan'
-              ? r.customer?.nama || r.requesterName
-              : 'Bengkel'
-            : 'Tidak berlaku'}
-        </span>
-      ),
-    },
-    {
-      key: 'jumlah',
-      header: 'Jumlah',
-      align: 'right',
-      render: (r) => {
-        const qty = computeRequestFulfilledQty(r);
-        return (
-          <data value={qty} className="tabular-nums font-medium">
-            {qty}
-          </data>
-        );
-      },
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (r) => <StatusChip status={getRequestStatusLabel(r)} />,
-    },
-    {
-      key: 'orderedAt',
-      header: 'Tanggal pesan',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {r.orderedAt || r.createdAt}
-        </span>
-      ),
-    },
-    {
-      key: 'arrivedAt',
-      header: 'Tanggal sampai',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {getOrderLatestReceiptDate(r)}
-        </span>
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (r) => (
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-          <EyeIconButton
-            ariaLabel={`Lihat ${r.orderCode || r.id}`}
-            title="Lihat detail"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLastTriggerElement(e.currentTarget);
-              setEyeRequestId(r.id);
-            }}
-          />
-        </div>
-      ),
-    },
-  ];
-
-  // Columns: Ditolak
-  // Kode permintaan, Kode pemesanan ("Belum ada" when it was rejected before an order), Jenis, Nama, Jumlah, Status (Ditolak or Batal), Alasan (one line, truncated), Tanggal ditolak, Aksi
-  const ditolakCols: Column<PurchaseRequest>[] = [
-    {
-      key: 'id',
-      header: 'Kode permintaan',
-      render: (r) => <samp className="font-mono font-semibold text-[#1E2230]">{r.id}</samp>,
-    },
-    {
-      key: 'orderCode',
-      header: 'Kode pemesanan',
-      render: (r) => (
-        <samp className="font-mono text-[13px] text-[#1E2230]">
-          {r.orderCode || 'Belum ada'}
-        </samp>
-      ),
-    },
-    {
-      key: 'jenis',
-      header: 'Jenis',
-      render: (r) => <StatusChip status={r.type === 'ho' ? 'HO' : 'Reguler'} />,
-    },
-    {
-      key: 'nama',
-      header: 'Nama',
-      render: (r) => (
-        <span className="text-[#1E2230]">
-          {r.type === 'ho'
-            ? r.requesterKind === 'pelanggan'
-              ? r.customer?.nama || r.requesterName
-              : 'Bengkel'
-            : 'Tidak berlaku'}
-        </span>
-      ),
-    },
-    {
-      key: 'jumlah',
-      header: 'Jumlah',
-      align: 'right',
-      render: (r) => {
-        const qty = computeRequestFulfilledQty(r);
-        return (
-          <data value={qty} className="tabular-nums font-medium">
-            {qty}
-          </data>
-        );
-      },
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (r) => <StatusChip status={getRequestStatusLabel(r)} />,
-    },
-    {
-      key: 'alasan',
-      header: 'Alasan',
-      render: (r) => (
-        <span
-          title={r.closeReason || 'Tidak dicatat'}
-          className="block max-w-[200px] truncate text-[13px] text-[#646B7C]"
-        >
-          {r.closeReason || 'Tidak dicatat'}
-        </span>
-      ),
-    },
-    {
-      key: 'closedAt',
-      header: 'Tanggal ditolak',
-      render: (r) => (
-        <span className="font-mono text-[13px] text-[#646B7C]">
-          {r.closedAt || r.createdAt}
-        </span>
-      ),
-    },
-    {
-      key: 'aksi',
-      header: 'Aksi',
-      align: 'right',
-      render: (r) => (
-        <div
-          className="flex items-center justify-end gap-1.5"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <EyeIconButton
-            ariaLabel={`Lihat ${r.id}`}
-            title="Lihat detail"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLastTriggerElement(e.currentTarget);
-              setEyeRequestId(r.id);
-            }}
-          />
-          {r.type === 'ho' && r.state === 'batal' && (
-            <PrinterIconButton
-              ariaLabel="Cetak bukti pembatalan HO"
-              title="Cetak bukti pembatalan HO"
-              onClick={(e) => {
-                e.stopPropagation();
-                printHoDocument(r, parts, 'batal_ho');
-              }}
-            />
-          )}
-        </div>
-      ),
-    },
-  ];
-
-  const selectedMovements = useMemo(() => {
-    if (!selectedPart) return [];
-    return stockMovements.filter(
-      (m) => m.partCode === selectedPart.kode || m.partCode === selectedPart.id
-    );
-  }, [selectedPart, stockMovements]);
 
   return (
-    <>
+    <div className="space-y-6">
+      <PageHeader
+        title="Stok Part"
+        decision={
+          canManageWarehouse
+            ? 'Pantau ketersediaan stok sparepart dan kelola perubahan atau penghapusan part gudang.'
+            : 'Pantau daftar sparepart, harga jual, dan status stok kritis gudang (akses lihat saja).'
+        }
+        action={
+          canManageWarehouse ? (
+            <ActionButton
+              intent="add"
+              to="/admin/v2/input-part"
+              icon={<PlusIcon size={16} />}
+            >
+              Input Part Baru
+            </ActionButton>
+          ) : undefined
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          to="/admin/v2/warehouse"
+          value={totalCount}
+          label="Total Item Part"
+          color="#3DA5F5"
+          bgTint="rgba(61, 165, 245, 0.14)"
+          icon={
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path d="M10 2.5L3 6V14L10 17.5L17 14V6L10 2.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            </svg>
+          }
+        />
+        <KpiCard
+          to="/admin/v2/warehouse?filter=low"
+          value={lowCount}
+          label="Stok di Bawah Minimum"
+          color="#D62E5A"
+          bgTint="rgba(242, 70, 111, 0.14)"
+          icon={
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path d="M10 3.5L17.5 16.5H2.5L10 3.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              <path d="M10 8.5V12M10 14.2H10.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          }
+        />
+        <KpiCard
+          to="/admin/v2/warehouse"
+          value={regulerCount}
+          label="Part Reguler"
+          color="#1F9D3A"
+          bgTint="rgba(92, 196, 106, 0.14)"
+          icon={
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <rect x="3.5" y="4.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M7 9.5H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          }
+        />
+        <KpiCard
+          to="/admin/v2/warehouse"
+          value={hoCount}
+          label="Part Jenis HO"
+          color="#B77700"
+          bgTint="rgba(255, 189, 89, 0.18)"
+          icon={
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M10 6.8V10L12.2 11.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          }
+        />
+      </div>
+
       <DataCard
-        title="Pengelolaan Gudang"
+        title="Daftar Stok Part Gudang"
         actions={
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+            <SearchField
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Cari kode atau nama part..."
+            />
+          </div>
+        }
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <FilterTabs
-            ariaLabel="Filter tab pengelolaan gudang"
-            value={tab}
-            onChange={(next) => {
-              const nextTab = next as WarehouseTab;
-              setTab(nextTab);
-              setParams(nextTab === 'Semua' ? {} : { tab: nextTab });
-            }}
+            ariaLabel="Filter status stok part"
+            value={filterTab}
+            onChange={handleFilterChange}
             tabs={[
-              {
-                value: 'Semua',
-                label: 'Semua',
-                count:
-                  semuaSub === 'pemesanan' ? semuaPemesananRows.length : parts.length,
-              },
-              {
-                value: 'Akan Datang',
-                label: 'Akan Datang',
-                count: akanDatangTotalCount,
-              },
-              {
-                value: 'Disetujui',
-                label: 'Disetujui',
-                count: disetujuiRows.length,
-              },
-              {
-                value: 'Ditolak',
-                label: 'Ditolak',
-                count: ditolakRows.length,
-              },
+              { value: 'all', label: 'Semua Part', count: totalCount },
+              { value: 'low', label: 'Stok Kritis', count: lowCount },
+              { value: 'reguler', label: 'Part Reguler', count: regulerCount },
+              { value: 'ho', label: 'Part HO', count: hoCount },
             ]}
           />
-        }
-      >
-        <div className="space-y-4">
-          {/* Sub-toggles for Semua */}
-          {tab === 'Semua' && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <FilterTabs
-                ariaLabel="Tampilan tab Semua"
-                value={semuaSub}
-                onChange={(v) => setSemuaSub(v as SemuaSubToggle)}
-                tabs={[
-                  {
-                    value: 'pemesanan',
-                    label: 'Semua pemesanan',
-                    count: semuaPemesananRows.length,
-                  },
-                  { value: 'part', label: 'Semua part', count: parts.length },
-                ]}
-              />
-
-              {semuaSub === 'part' && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <ExpandableSearch
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder="Kode atau nama part..."
-                    ariaLabel="Cari part"
-                  />
-
-                  <FilterMenu
-                    value={partFilter}
-                    defaultValue="all"
-                    options={PART_FILTER_OPTIONS}
-                    onChange={(v) => setPartFilter(v as PartFilterKey)}
-                    ariaLabel="Filter part"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Sub-toggles for Akan Datang */}
-          {tab === 'Akan Datang' && (
-            <div className="flex items-center justify-between gap-3">
-              <FilterTabs
-                ariaLabel="Jenis pesanan akan datang"
-                value={akanDatangSub}
-                onChange={(v) => setAkanDatangSub(v as AkanDatangSubToggle)}
-                tabs={[
-                  {
-                    value: 'reguler',
-                    label: 'Reguler',
-                    count: akanDatangRegulerRows.length,
-                  },
-                  { value: 'ho', label: 'HO', count: akanDatangHoRows.length },
-                ]}
-              />
-            </div>
-          )}
-
-          {/* Table Content by Tab */}
-          {tab === 'Semua' && semuaSub === 'pemesanan' && (
-            <DataTable
-              columns={semuaPemesananCols}
-              data={semuaPemesananRows}
-              keyExtractor={(r) => r.id}
-              flashKey={flashRowId}
-              emptyMessage="Belum ada pemesanan. Setujui permintaan di Permintaan Penyediaan."
-              swapKey="semua-pemesanan"
-            />
-          )}
-
-          {tab === 'Semua' && semuaSub === 'part' && (
-            <>
-              {parts.length === 0 ? (
-                <div className="py-8 px-4 text-center rounded-[12px] bg-[#F6F7FA]">
-                  <p className="text-[14px] text-[#646B7C]">
-                    Belum ada part. Tambahkan lewat Master Gudang.
-                  </p>
-                </div>
-              ) : filteredParts.length === 0 ? (
-                <div className="py-8 px-4 text-center rounded-[12px] bg-[#F6F7FA] space-y-2">
-                  <p className="text-[14px] text-[#646B7C]">
-                    Tidak ada part untuk filter ini.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPartFilter('all');
-                      setSearchQuery('');
-                    }}
-                    className="font-sans text-[13px] font-semibold text-[#1D6FC4] underline underline-offset-2"
-                  >
-                    Hapus filter
-                  </button>
-                </div>
-              ) : (
-                <DataTable
-                  columns={semuaPartCols}
-                  data={filteredParts}
-                  keyExtractor={(p) => p.kode}
-                  onRowClick={(p) => setSelectedPartCode(p.kode)}
-                  flashKey={flashRowId}
-                  swapKey={`semua-part-${partFilter}-${searchQuery}`}
-                />
-              )}
-            </>
-          )}
-
-          {tab === 'Akan Datang' && akanDatangSub === 'reguler' && (
-            <DataTable
-              columns={akanDatangRegulerCols}
-              data={akanDatangRegulerRows}
-              keyExtractor={(row) => row.rowKey}
-              flashKey={flashRowId}
-              emptyMessage="Tidak ada barang yang sedang dipesan."
-              swapKey="akan-datang-reguler"
-            />
-          )}
-
-          {tab === 'Akan Datang' && akanDatangSub === 'ho' && (
-            <DataTable
-              columns={akanDatangHoCols}
-              data={akanDatangHoRows}
-              keyExtractor={(r) => r.id}
-              flashKey={flashRowId}
-              emptyMessage="Tidak ada barang yang sedang dipesan."
-              swapKey="akan-datang-ho"
-            />
-          )}
-
-          {tab === 'Disetujui' && (
-            <DataTable
-              columns={disetujuiCols}
-              data={disetujuiRows}
-              keyExtractor={(r) => r.id}
-              flashKey={flashRowId}
-              emptyMessage="Belum ada barang yang sampai."
-              swapKey="disetujui"
-            />
-          )}
-
-          {tab === 'Ditolak' && (
-            <DataTable
-              columns={ditolakCols}
-              data={ditolakRows}
-              keyExtractor={(r) => r.id}
-              flashKey={flashRowId}
-              emptyMessage="Tidak ada permintaan yang ditolak."
-              swapKey="ditolak"
-            />
+          {!canManageWarehouse && (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-[10px] bg-[#F6F7FA] border border-[#E6E9F0] text-[12px] text-[#646B7C]">
+              Mode lihat saja untuk Admin bengkel
+            </span>
           )}
         </div>
+
+        <DataTable
+          columns={columns}
+          data={filteredParts}
+          keyExtractor={(p) => p.kode}
+          onRowClick={(p) => setDetailPartKode(p.kode)}
+          swapKey={`stok-part-${filterTab}-${searchQuery}-${filteredParts.length}`}
+          emptyMessage={
+            parts.length === 0
+              ? 'Belum ada data part tersimpan di database gudang.'
+              : 'Tidak ada part yang cocok dengan filter atau pencarian.'
+          }
+        />
       </DataCard>
 
-      {/* Read-only Eye Popup for orders */}
-      <RequestEyeDialog
-        isOpen={Boolean(eyeRequestId)}
-        request={eyeRequest}
-        parts={parts}
-        readOnly
-        onClose={() => setEyeRequestId(null)}
-      />
-
-      {/* Cancel Reguler Line Reason Panel */}
-      <CancelReasonPanel
-        isOpen={Boolean(cancelLineTarget)}
-        title={
-          cancelLineTarget
-            ? `Batalkan pesanan ${
-                cancelLineTarget.part?.nama || cancelLineTarget.line.partId || ''
-              }`
-            : 'Batalkan pesanan'
-        }
-        onClose={() => setCancelLineTarget(null)}
-        onConfirm={(reason) => {
-          if (!cancelLineTarget) return;
-          const res = cancelRegulerLine(
-            cancelLineTarget.request.id,
-            cancelLineTarget.line.id,
-            reason
-          );
-          if (!res.ok) return res;
-          notify('Pesanan part dibatalkan.');
-          return { ok: true };
-        }}
-      />
-
-      {/* Cancel HO Verification Dialog */}
-      <CancelHoDialog
-        isOpen={Boolean(cancelHoTargetId)}
-        request={cancelHoTarget}
-        onClose={() => setCancelHoTargetId(null)}
-        onCancelled={(cancelled) => {
-          const codeLabel = cancelled.orderCode || cancelled.id;
-          notify(`${codeLabel} dibatalkan.`, {
-            actionLabel: 'Cetak',
-            onAction: () => printHoDocument(cancelled, parts, 'batal_ho'),
-            durationMs: 5000,
-          });
-        }}
-      />
-
-      {/* Read-only Part Panel with Stock Movement History */}
       <SidePanel
-        isOpen={Boolean(selectedPart)}
-        onClose={() => setSelectedPartCode(null)}
-        title={selectedPart ? `${selectedPart.kode} - ${selectedPart.nama}` : 'Detail Part'}
+        isOpen={Boolean(detailPart)}
+        onClose={() => setDetailPartKode(null)}
+        title={detailPart ? `${detailPart.kode} : ${detailPart.nama}` : 'Detail Part'}
+        description="Informasi lengkap spesifikasi, stok, dan riwayat penyesuaian part."
         footer={
-          <ActionButton
-            type="button"
-            intent="cancel"
-            onClick={() => setSelectedPartCode(null)}
-          >
-            Tutup
-          </ActionButton>
+          detailPart && canManageWarehouse ? (
+            <div className="flex items-center justify-between gap-2 w-full">
+              <ActionButton intent="cancel" onClick={() => setDeleteTarget(detailPart)}>
+                Hapus Part
+              </ActionButton>
+              <ActionButton intent="start" onClick={() => openEditPanel(detailPart)}>
+                Edit Part
+              </ActionButton>
+            </div>
+          ) : undefined
         }
       >
-        {selectedPart && (
-          <div className="space-y-6">
-            <dl className="grid grid-cols-2 gap-3 p-4 rounded-[12px] bg-[#F6F7FA] text-[13px]">
+        {detailPart && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 p-4 rounded-[14px] bg-[#F6F7FA] border border-[#EEF0F4]">
               <div>
-                <dt className="text-[#646B7C]">Kode part</dt>
-                <dd className="font-mono font-semibold text-[#1E2230] mt-0.5">
-                  {selectedPart.kode}
-                </dd>
+                <div className="text-[12px] text-[#646B7C]">Kode Part</div>
+                <div className="font-mono font-semibold text-[14px] text-[#1E2230] mt-0.5">{detailPart.kode}</div>
               </div>
               <div>
-                <dt className="text-[#646B7C]">Satuan</dt>
-                <dd className="font-medium text-[#1E2230] mt-0.5">{selectedPart.satuan}</dd>
+                <div className="text-[12px] text-[#646B7C]">Jenis</div>
+                <div className="mt-1">
+                  <StatusChip status={detailPart.jenis} />
+                </div>
               </div>
               <div>
-                <dt className="text-[#646B7C]">Stok saat ini</dt>
-                <dd className="font-mono font-bold text-[18px] text-[#1E2230] mt-0.5 tabular-nums">
-                  {computeStock(selectedPart, stockMovements)}
-                </dd>
+                <div className="text-[12px] text-[#646B7C]">Stok Saat Ini</div>
+                <div className="font-bold text-[16px] text-[#1E2230] mt-0.5">
+                  {computeStock(detailPart, stockMovements)} {detailPart.satuan}
+                </div>
               </div>
               <div>
-                <dt className="text-[#646B7C]">Status</dt>
-                <dd className="mt-1">
-                  <StatusChip status={getPartStatusLabel(selectedPart)} />
-                </dd>
+                <div className="text-[12px] text-[#646B7C]">Stok Minimum</div>
+                <div className="font-medium text-[14px] text-[#1E2230] mt-0.5">
+                  {detailPart.jenis === 'ho' ? 'Sesuai pesanan HO' : `${detailPart.stokMin ?? 0} ${detailPart.satuan}`}
+                </div>
               </div>
               <div>
-                <dt className="text-[#646B7C]">Harga beli</dt>
-                <dd className="font-mono font-medium text-[#1E2230] mt-0.5 tabular-nums">
-                  {formatRupiah(selectedPart.hargaBeli)}
-                </dd>
+                <div className="text-[12px] text-[#646B7C]">Harga Beli</div>
+                <div className="font-medium text-[14px] text-[#1E2230] mt-0.5">
+                  {formatRupiah(detailPart.hargaBeli)}
+                </div>
               </div>
               <div>
-                <dt className="text-[#646B7C]">Harga jual</dt>
-                <dd className="font-mono font-medium text-[#1E2230] mt-0.5 tabular-nums">
-                  {formatRupiah(selectedPart.hargaJual)}
-                </dd>
+                <div className="text-[12px] text-[#646B7C]">Harga Jual</div>
+                <div className="font-semibold text-[14px] text-[#1E2230] mt-0.5">
+                  {formatRupiah(detailPart.hargaJual)}
+                </div>
               </div>
-              <div>
-                <dt className="text-[#646B7C]">Stok minimum</dt>
-                <dd className="font-mono text-[#1E2230] mt-0.5 tabular-nums">
-                  {selectedPart.jenis === 'ho'
-                    ? 'Tidak berlaku'
-                    : selectedPart.stokMin ?? 1}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[#646B7C]">Jenis</dt>
-                <dd className="mt-1">
-                  <StatusChip status={selectedPart.jenis === 'ho' ? 'HO' : 'Reguler'} />
-                </dd>
-              </div>
-            </dl>
+            </div>
 
             <div>
-              <h3 className="text-[14px] font-semibold text-[#1E2230] mb-2">
-                Riwayat pergerakan stok
-              </h3>
-              {selectedMovements.length === 0 ? (
-                <p className="text-[13px] text-[#646B7C]">Belum ada pergerakan stok.</p>
+              <h3 className="text-[13px] font-semibold text-[#1E2230] mb-2">Riwayat Perubahan Terbaru</h3>
+              {detailHistory.length === 0 ? (
+                <p className="text-[13px] text-[#646B7C] bg-[#F6F7FA] rounded-[12px] p-3">
+                  Belum ada catatan perubahan untuk part ini.
+                </p>
               ) : (
-                <ul className="divide-y divide-[#EEF0F4] text-[13px]">
-                  {selectedMovements.map((m) => (
-                    <li key={m.id} className="py-2.5 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="font-medium text-[#1E2230]">{m.reason}</span>
-                        <span className="text-[12px] text-[#646B7C] ml-2">
-                          ({m.reference} · {m.date})
-                        </span>
+                <ul className="space-y-2">
+                  {detailHistory.map((h) => (
+                    <li
+                      key={h.id}
+                      className="p-3 rounded-[12px] border border-[#EEF0F4] bg-white text-[13px]"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[12px] text-[#646B7C]">
+                        <span>{h.at}</span>
+                        <span>{h.byNama}</span>
                       </div>
-                      <data
-                        value={m.quantity}
-                        className={`font-mono font-semibold tabular-nums ${
-                          m.quantity >= 0 ? 'text-[#1F9D3A]' : 'text-[#D62E5A]'
-                        }`}
-                      >
-                        {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
-                      </data>
+                      <div className="font-medium text-[#1E2230] mt-1">
+                        {h.field}: {h.oldValue} {'->'} {h.newValue}
+                      </div>
+                      {h.note && <div className="text-[12px] text-[#646B7C] mt-0.5">{h.note}</div>}
                     </li>
                   ))}
                 </ul>
@@ -1211,7 +546,161 @@ const V2Warehouse: React.FC = () => {
           </div>
         )}
       </SidePanel>
-    </>
+
+      <SidePanel
+        isOpen={Boolean(editPartTarget) && canManageWarehouse}
+        onClose={() => setEditPartTarget(null)}
+        title={editPartTarget ? `Edit Part ${editPartTarget.kode}` : 'Edit Part'}
+        description="Perubahan disimpan langsung ke database gudang beserta jejak audit."
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <ActionButton intent="neutral" onClick={() => setEditPartTarget(null)}>
+              Batal
+            </ActionButton>
+            <ActionButton intent="start" type="submit" onClick={handleSaveEdit as any}>
+              Simpan Perubahan
+            </ActionButton>
+          </div>
+        }
+      >
+        {editPartTarget && (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <FormField id="edit-nama" label="Nama Part">
+              <input
+                id="edit-nama"
+                type="text"
+                value={editNama}
+                onChange={(e) => setEditNama(e.target.value)}
+                className="admin-input h-10"
+                required
+              />
+            </FormField>
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField id="edit-satuan" label="Satuan">
+                <select
+                  id="edit-satuan"
+                  value={editSatuan}
+                  onChange={(e) => setEditSatuan(e.target.value)}
+                  className="admin-input h-10"
+                >
+                  {SATUAN_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField id="edit-stok" label="Stok Saat Ini">
+                <input
+                  id="edit-stok"
+                  type="number"
+                  min={0}
+                  value={editStok}
+                  onChange={(e) => setEditStok(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            </div>
+
+            {editPartTarget.jenis === 'reguler' && (
+              <FormField id="edit-stok-min" label="Stok Minimum">
+                <input
+                  id="edit-stok-min"
+                  type="number"
+                  min={0}
+                  value={editStokMin}
+                  onChange={(e) => setEditStokMin(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField id="edit-beli" label="Harga Beli (Rp)">
+                <input
+                  id="edit-beli"
+                  type="number"
+                  min={0}
+                  value={editHargaBeli}
+                  onChange={(e) => setEditHargaBeli(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+
+              <FormField id="edit-jual" label="Harga Jual (Rp)">
+                <input
+                  id="edit-jual"
+                  type="number"
+                  min={0}
+                  value={editHargaJual}
+                  onChange={(e) => setEditHargaJual(e.target.value)}
+                  className="admin-input h-10"
+                  required
+                />
+              </FormField>
+            </div>
+
+            <FormField
+              id="edit-note"
+              label="Catatan Penyesuaian"
+              helperText="Minimal 5 karakter untuk pencatatan riwayat audit."
+            >
+              <textarea
+                id="edit-note"
+                rows={3}
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="Contoh: Koreksi stok fisik dan pembaruan harga"
+                className="admin-input py-2.5 min-h-[84px]"
+                required
+              />
+            </FormField>
+
+            {editError && (
+              <div
+                role="alert"
+                className="rounded-[12px] bg-[rgba(242,70,111,0.12)] border border-[rgba(242,70,111,0.28)] px-3.5 py-2.5 text-[13px] font-medium text-[#D62E5A]"
+              >
+                {editError}
+              </div>
+            )}
+          </form>
+        )}
+      </SidePanel>
+
+      <CenterDialog
+        isOpen={Boolean(deleteTarget) && canManageWarehouse}
+        onClose={() => setDeleteTarget(null)}
+        title="Hapus Data Part"
+        subtitle={
+          deleteTarget
+            ? `Apakah Anda yakin ingin menghapus part ${deleteTarget.kode} (${deleteTarget.nama}) dari database?`
+            : undefined
+        }
+        maxWidthClass="max-w-[460px]"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <ActionButton intent="neutral" onClick={() => setDeleteTarget(null)}>
+              Batal
+            </ActionButton>
+            <ActionButton intent="cancel" onClick={handleConfirmDelete}>
+              Ya, Hapus Part
+            </ActionButton>
+          </div>
+        }
+      >
+        {deleteTarget && (
+          <div className="rounded-[12px] bg-[#F6F7FA] border border-[#E6E9F0] p-3.5 text-[13px] text-[#454D5F]">
+            Part <strong>{deleteTarget.kode}</strong> ({deleteTarget.nama}) akan dihapus dari katalog gudang.
+          </div>
+        )}
+      </CenterDialog>
+    </div>
   );
 };
 

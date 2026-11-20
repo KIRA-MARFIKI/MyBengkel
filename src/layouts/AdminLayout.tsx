@@ -32,11 +32,8 @@ const V1_TABS: TabDef[] = [
 ];
 
 const V2_TABS: TabDef[] = [
-  { label: 'Permintaan Penyediaan', path: '/admin/v2/purchase-requests' },
-  { label: 'Pengelolaan Gudang', path: '/admin/v2/warehouse' },
-  { label: 'Input Manual', path: '/admin/v2/manual-entries' },
-  { label: 'Master Gudang', path: '/admin/v2/master-gudang' },
-  { label: 'Laporan', path: '/admin/laporan/gudang' },
+  { label: 'Stok Part', path: '/admin/v2/warehouse' },
+  { label: 'Input Part', path: '/admin/v2/input-part' },
 ];
 
 const LAPORAN_TABS: TabDef[] = [
@@ -105,7 +102,7 @@ const NavIcon: React.FC<{ id: TopNavId }> = ({ id }) => {
 const TOP_ITEMS: { id: TopNavId; label: string; to: string }[] = [
   { id: 'dashboard', label: 'Dashboard', to: '/admin' },
   { id: 'servis', label: 'Servis', to: '/admin/v1/booking' },
-  { id: 'gudang', label: 'Gudang', to: '/admin/v2/purchase-requests' },
+  { id: 'gudang', label: 'Gudang', to: '/admin/v2/warehouse' },
   { id: 'penjualan', label: 'Penjualan', to: '/admin/penjualan' },
   { id: 'laporan', label: 'Laporan', to: '/admin/laporan' },
   { id: 'helpdesk', label: 'Helpdesk Center', to: '/admin/helpdesk' },
@@ -156,8 +153,12 @@ const AdminShell: React.FC = () => {
     if (isV1 && role !== 'admin' && t.path === '/admin/v1/service-forms') {
       return false;
     }
-    // Admin only has view + request access in Gudang (no Input Manual write adjustment tab)
-    if (isV2 && role === 'admin' && t.path === '/admin/v2/manual-entries') {
+    // Admin in Gudang only has view-only Stok Part with zero sub-tabs
+    if (isV2 && role === 'admin') {
+      return false;
+    }
+    // Admin must NOT see Laporan Gudang tab
+    if (isLaporan && role === 'admin' && t.path === '/admin/laporan/gudang') {
       return false;
     }
     return true;
@@ -554,6 +555,8 @@ const AdminShell: React.FC = () => {
 const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs, currentPath }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  if (tabs.length === 0) return null;
+
   // Exact match first, otherwise longest matching prefix
   let activeIdx = tabs.findIndex((t) => t.path === currentPath);
   if (activeIdx < 0) {
@@ -566,7 +569,7 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
     });
   }
   if (activeIdx < 0) activeIdx = 0;
-  const activePath = tabs[activeIdx]?.path ?? tabs[0].path;
+  const activePath = tabs[activeIdx]?.path ?? tabs[0]?.path ?? '';
 
   return (
     <nav aria-label="Submenu modul" className="mt-4 md:overflow-x-auto">
@@ -584,8 +587,8 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
                 isLastOdd ? 'col-span-2' : ''
               } ${
                 active
-                  ? 'bg-[#1E2230] text-white border border-[#1E2230] font-semibold shadow-sm'
-                  : 'bg-white text-[#1E2230] border border-[#D9DDE6] font-medium hover:bg-[#F6F7FA]'
+                  ? 'admin-tab-active bg-[#1E2230] text-white border border-[#1E2230] font-semibold shadow-sm'
+                  : 'admin-tab-inactive bg-white text-[#1E2230] border border-[#D9DDE6] font-medium hover:bg-[#F6F7FA]'
               }`}
             >
               <span className="truncate">{t.label}</span>
@@ -607,8 +610,8 @@ const SubModuleBar: React.FC<{ tabs: TabDef[]; currentPath: string }> = ({ tabs,
               aria-current={active ? 'page' : undefined}
               className={`admin-tab-btn relative z-10 ${
                 active
-                  ? 'bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
-                  : 'bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
+                  ? 'admin-tab-active bg-[#1E2230] text-white border border-[#1E2230] shadow-sm font-semibold'
+                  : 'admin-tab-inactive bg-white text-[#1E2230] border border-[#D9DDE6] hover:bg-[#F6F7FA] font-medium'
               }`}
             >
               <span data-island-label className="relative z-10">

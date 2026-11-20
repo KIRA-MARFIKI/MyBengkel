@@ -347,8 +347,6 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
     ['Total Qty Stok Tersedia', data.kpis.totalStokTersedia],
     ['Total Barang Masuk (pcs)', data.kpis.totalBarangMasuk],
     ['Total Barang Keluar (pcs)', data.kpis.totalBarangKeluar],
-    ['Total Permintaan Pending', data.kpis.totalPermintaanPending],
-    ['Total Pesanan Belum Sampai', data.kpis.totalPesananBelumSampai],
   ];
   const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
   wsKpi['!cols'] = fitColumnWidths(kpiRows);
@@ -366,8 +364,6 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
     'Jenis',
     'Status',
     'Tanggal Dibuat',
-    'Tanggal Permintaan Terakhir',
-    'Tanggal Terima Terakhir',
   ];
   const partRows: (string | number)[][] = [
     partHeaders,
@@ -382,8 +378,6 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
       p.jenis,
       p.status,
       p.tanggalDibuat,
-      p.tanggalPermintaan,
-      p.tanggalTerimaTerakhir,
     ]),
   ];
   const wsPart = XLSX.utils.aoa_to_sheet(partRows);
@@ -422,82 +416,17 @@ export function exportExcelWarehouseReport(data: WarehouseReportData): void {
   wsMov['!cols'] = fitColumnWidths(movRows);
   XLSX.utils.book_append_sheet(wb, wsMov, 'Mutasi Stok');
 
-  // 4. Permintaan Penyediaan Sheet
-  const reqHeaders = [
-    'Kode Permintaan',
-    'Jenis Permintaan',
-    'Pemohon',
-    'Kode Part',
-    'Nama Part',
-    'Jumlah',
-    'Status Part',
-    'Status Permintaan',
-    'Kode Pemesanan',
-    'Tanggal Diajukan',
-    'Tanggal Diterima',
-    'Alasan',
-  ];
-  const reqRows: (string | number)[][] = [
-    reqHeaders,
-    ...data.tables.requests.map((r) => [
-      r.kodePermintaan,
-      r.jenisPermintaan,
-      r.pemohon,
-      r.kodePart,
-      r.namaPart,
-      r.jumlah,
-      r.statusPart,
-      r.statusPermintaan,
-      r.kodePemesanan,
-      r.tanggalDiajukan,
-      r.tanggalDiterima,
-      r.alasan,
-    ]),
-  ];
-  const wsReq = XLSX.utils.aoa_to_sheet(reqRows);
-  wsReq['!cols'] = fitColumnWidths(reqRows);
-  XLSX.utils.book_append_sheet(wb, wsReq, 'Permintaan Penyediaan');
-
-  // 5. Riwayat Pemesanan Sheet
-  const ordHeaders = [
-    'Kode Pemesanan',
-    'Jenis',
-    'Nama Pemohon',
-    'Jumlah Part',
-    'Status',
-    'Tanggal Pesan',
-    'Tanggal Sampai',
-    'Tanggal Diproses',
-    'Alasan Batal',
-  ];
-  const ordRows: (string | number)[][] = [
-    ordHeaders,
-    ...data.tables.orders.map((o) => [
-      o.kodePemesanan,
-      o.jenis,
-      o.namaPemohon,
-      o.jumlahPart,
-      o.status,
-      o.tanggalPesan,
-      o.tanggalSampai,
-      o.tanggalDiproses,
-      o.alasanBatal,
-    ]),
-  ];
-  const wsOrd = XLSX.utils.aoa_to_sheet(ordRows);
-  wsOrd['!cols'] = fitColumnWidths(ordRows);
-  XLSX.utils.book_append_sheet(wb, wsOrd, 'Riwayat Pemesanan');
-
   const filename = `MyBengkel_Laporan_Gudang_${sanitizeFilename(data.periodLabel)}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
 
-// Helper to build and append the 14 standard worksheets
-function appendStandard14Sheets(
+// Helper to build and append standard worksheets (Servis + Penjualan, and Gudang if allowed)
+function appendStandardSheets(
   wb: XLSX.WorkBook,
   serviceData: ServiceReportData,
   salesData: SalesReportData,
-  warehouseData: WarehouseReportData
+  warehouseData: WarehouseReportData,
+  includeWarehouse: boolean = true
 ): void {
   // 1. Servis - Ringkasan
   const kpiServiceRows = [
@@ -697,181 +626,118 @@ function appendStandard14Sheets(
   XLSX.utils.book_append_sheet(wb, wsPerf, 'Penjualan - Performa Part');
 
   // 9. Gudang - Ringkasan
-  const kpiWhRows = [
-    ['RINGKASAN EKSEKUTIF GUDANG - MYBENGKEL'],
-    ['Periode', warehouseData.periodLabel],
-    ['Dicetak Pada', `${todayISO()} ${nowTime()}`],
-    [],
-    ['Total Jenis Part', warehouseData.kpis.totalJenisPart],
-    ['Total Part Aman', warehouseData.kpis.partAmanCount],
-    ['Total Part Kritis', warehouseData.kpis.partKritisCount],
-    ['Total Part HO', warehouseData.kpis.partHoCount],
-    ['Total Qty Stok Tersedia', warehouseData.kpis.totalStokTersedia],
-    ['Barang Masuk (pcs)', warehouseData.kpis.totalBarangMasuk],
-    ['Barang Keluar (pcs)', warehouseData.kpis.totalBarangKeluar],
-    ['Permintaan Pending', warehouseData.kpis.totalPermintaanPending],
-    ['Pesanan Belum Sampai', warehouseData.kpis.totalPesananBelumSampai],
-  ];
-  const wsKpiWh = XLSX.utils.aoa_to_sheet(kpiWhRows);
-  wsKpiWh['!cols'] = fitColumnWidths(kpiWhRows);
-  XLSX.utils.book_append_sheet(wb, wsKpiWh, 'Gudang - Ringkasan');
+  if (includeWarehouse) {
+    // 9. Gudang - Ringkasan
+    const kpiWhRows = [
+      ['RINGKASAN EKSEKUTIF GUDANG - MYBENGKEL'],
+      ['Periode', warehouseData.periodLabel],
+      ['Dicetak Pada', `${todayISO()} ${nowTime()}`],
+      [],
+      ['Total Jenis Part', warehouseData.kpis.totalJenisPart],
+      ['Total Part Aman', warehouseData.kpis.partAmanCount],
+      ['Total Part Kritis', warehouseData.kpis.partKritisCount],
+      ['Total Part HO', warehouseData.kpis.partHoCount],
+      ['Total Qty Stok Tersedia', warehouseData.kpis.totalStokTersedia],
+      ['Barang Masuk (pcs)', warehouseData.kpis.totalBarangMasuk],
+      ['Barang Keluar (pcs)', warehouseData.kpis.totalBarangKeluar],
+    ];
+    const wsKpiWh = XLSX.utils.aoa_to_sheet(kpiWhRows);
+    wsKpiWh['!cols'] = fitColumnWidths(kpiWhRows);
+    XLSX.utils.book_append_sheet(wb, wsKpiWh, 'Gudang - Ringkasan');
 
-  // 10. Gudang - Master Part
-  const partRows = [
-    [
-      'Kode Part',
-      'Nama Part',
-      'Satuan',
-      'Stok',
-      'Harga Beli',
-      'Harga Jual',
-      'Min Stok',
-      'Jenis',
-      'Status',
-      'Tanggal Dibuat',
-    ],
-    ...warehouseData.tables.partConditions.map((p) => [
-      p.kodePart,
-      p.namaPart,
-      p.satuan,
-      p.stok,
-      p.hargaBeli,
-      p.hargaJual,
-      p.stokMinimum,
-      p.jenis.toUpperCase(),
-      p.status,
-      p.tanggalDibuat,
-    ]),
-  ];
-  const wsParts = XLSX.utils.aoa_to_sheet(partRows);
-  wsParts['!cols'] = fitColumnWidths(partRows);
-  XLSX.utils.book_append_sheet(wb, wsParts, 'Gudang - Master Part');
+    // 10. Gudang - Master Part
+    const partRows = [
+      [
+        'Kode Part',
+        'Nama Part',
+        'Satuan',
+        'Stok',
+        'Harga Beli',
+        'Harga Jual',
+        'Min Stok',
+        'Jenis',
+        'Status',
+        'Tanggal Dibuat',
+      ],
+      ...warehouseData.tables.partConditions.map((p) => [
+        p.kodePart,
+        p.namaPart,
+        p.satuan,
+        p.stok,
+        p.hargaBeli,
+        p.hargaJual,
+        p.stokMinimum,
+        p.jenis.toUpperCase(),
+        p.status,
+        p.tanggalDibuat,
+      ]),
+    ];
+    const wsParts = XLSX.utils.aoa_to_sheet(partRows);
+    wsParts['!cols'] = fitColumnWidths(partRows);
+    XLSX.utils.book_append_sheet(wb, wsParts, 'Gudang - Master Part');
 
-  // 11. Gudang - Mutasi Stok
-  const movRows = [
-    [
-      'Tanggal',
-      'Kode Part',
-      'Nama Part',
-      'Jenis Mutasi',
-      'Qty Masuk',
-      'Qty Keluar',
-      'Referensi Transaksi',
-      'Sumber Mutasi',
-      'Dicatat Oleh',
-      'Catatan',
-    ],
-    ...warehouseData.tables.movements.map((m) => [
-      m.tanggal,
-      m.kodePart,
-      m.namaPart,
-      m.jenisMutasi,
-      m.qtyMasuk,
-      m.qtyKeluar,
-      m.referensiTransaksi,
-      m.sumberMutasi,
-      m.dicatatOleh,
-      m.catatan,
-    ]),
-  ];
-  const wsMov = XLSX.utils.aoa_to_sheet(movRows);
-  wsMov['!cols'] = fitColumnWidths(movRows);
-  XLSX.utils.book_append_sheet(wb, wsMov, 'Gudang - Mutasi Stok');
+    // 11. Gudang - Mutasi Stok
+    const movRows = [
+      [
+        'Tanggal',
+        'Kode Part',
+        'Nama Part',
+        'Jenis Mutasi',
+        'Qty Masuk',
+        'Qty Keluar',
+        'Referensi Transaksi',
+        'Sumber Mutasi',
+        'Dicatat Oleh',
+        'Catatan',
+      ],
+      ...warehouseData.tables.movements.map((m) => [
+        m.tanggal,
+        m.kodePart,
+        m.namaPart,
+        m.jenisMutasi,
+        m.qtyMasuk,
+        m.qtyKeluar,
+        m.referensiTransaksi,
+        m.sumberMutasi,
+        m.dicatatOleh,
+        m.catatan,
+      ]),
+    ];
+    const wsMov = XLSX.utils.aoa_to_sheet(movRows);
+    wsMov['!cols'] = fitColumnWidths(movRows);
+    XLSX.utils.book_append_sheet(wb, wsMov, 'Gudang - Mutasi Stok');
 
-  // 12. Gudang - Permintaan Part
-  const reqRows = [
-    [
-      'Kode Permintaan',
-      'Jenis Permintaan',
-      'Pemohon',
-      'Kode Part',
-      'Nama Part',
-      'Jumlah',
-      'Status Part',
-      'Status Permintaan',
-      'Kode Pemesanan',
-      'Tanggal Diajukan',
-      'Tanggal Diterima',
-      'Alasan',
-    ],
-    ...warehouseData.tables.requests.map((r) => [
-      r.kodePermintaan,
-      r.jenisPermintaan,
-      r.pemohon,
-      r.kodePart,
-      r.namaPart,
-      r.jumlah,
-      r.statusPart,
-      r.statusPermintaan,
-      r.kodePemesanan,
-      r.tanggalDiajukan,
-      r.tanggalDiterima,
-      r.alasan,
-    ]),
-  ];
-  const wsReq = XLSX.utils.aoa_to_sheet(reqRows);
-  wsReq['!cols'] = fitColumnWidths(reqRows);
-  XLSX.utils.book_append_sheet(wb, wsReq, 'Gudang - Permintaan Part');
-
-  // 13. Gudang - Riwayat Pesanan
-  const ordRows = [
-    [
-      'Kode Pemesanan',
-      'Jenis',
-      'Nama Pemohon',
-      'Jumlah Part',
-      'Status',
-      'Tanggal Pesan',
-      'Tanggal Sampai',
-      'Tanggal Diproses',
-      'Alasan Batal',
-    ],
-    ...warehouseData.tables.orders.map((o) => [
-      o.kodePemesanan,
-      o.jenis,
-      o.namaPemohon,
-      o.jumlahPart,
-      o.status,
-      o.tanggalPesan,
-      o.tanggalSampai,
-      o.tanggalDiproses,
-      o.alasanBatal,
-    ]),
-  ];
-  const wsOrd = XLSX.utils.aoa_to_sheet(ordRows);
-  wsOrd['!cols'] = fitColumnWidths(ordRows);
-  XLSX.utils.book_append_sheet(wb, wsOrd, 'Gudang - Riwayat Pesanan');
-
-  // 14. Gudang - Stok Opname
-  const opnameRows = [
-    [
-      'Kode Opname',
-      'Tanggal Opname',
-      'Petugas',
-      'Total Part',
-      'Part Sesuai',
-      'Part Lebih',
-      'Part Kurang',
-      'Status',
-      'Disetujui Oleh',
-      'Tanggal Persetujuan',
-    ],
-    ...warehouseData.stockOpname.rows.map((so) => [
-      so.kodeOpname,
-      so.tanggalOpname,
-      so.petugas,
-      so.jumlahPart,
-      so.partSesuai,
-      so.partLebih,
-      so.partKurang,
-      STOCK_OPNAME_STATUS_LABELS[so.status] || so.status,
-      so.disetujuiOleh,
-      so.tanggalPersetujuan,
-    ]),
-  ];
-  const wsOpname = XLSX.utils.aoa_to_sheet(opnameRows);
-  wsOpname['!cols'] = fitColumnWidths(opnameRows);
-  XLSX.utils.book_append_sheet(wb, wsOpname, 'Gudang - Stok Opname');
+    // 12. Gudang - Stok Opname
+    const opnameRows = [
+      [
+        'Kode Opname',
+        'Tanggal Opname',
+        'Petugas',
+        'Total Part',
+        'Part Sesuai',
+        'Part Lebih',
+        'Part Kurang',
+        'Status',
+        'Disetujui Oleh',
+        'Tanggal Persetujuan',
+      ],
+      ...warehouseData.stockOpname.rows.map((so) => [
+        so.kodeOpname,
+        so.tanggalOpname,
+        so.petugas,
+        so.jumlahPart,
+        so.partSesuai,
+        so.partLebih,
+        so.partKurang,
+        STOCK_OPNAME_STATUS_LABELS[so.status] || so.status,
+        so.disetujuiOleh,
+        so.tanggalPersetujuan,
+      ]),
+    ];
+    const wsOpname = XLSX.utils.aoa_to_sheet(opnameRows);
+    wsOpname['!cols'] = fitColumnWidths(opnameRows);
+    XLSX.utils.book_append_sheet(wb, wsOpname, 'Gudang - Stok Opname');
+  }
 }
 
 // Helper to create an audit worksheet
@@ -936,12 +802,12 @@ function createAuditSheet(
 export function exportExcelAllReports(
   serviceData: ServiceReportData,
   salesData: SalesReportData,
-  warehouseData: WarehouseReportData
+  warehouseData: WarehouseReportData,
+  includeWarehouse: boolean = true
 ): void {
   const wb = XLSX.utils.book_new();
 
-  // Append standard 14 sheets (Admin Export)
-  appendStandard14Sheets(wb, serviceData, salesData, warehouseData);
+  appendStandardSheets(wb, serviceData, salesData, warehouseData, includeWarehouse);
 
   const filename = `MyBengkel_Laporan_Lengkap_${sanitizeFilename(serviceData.periodLabel)}.xlsx`;
   XLSX.writeFile(wb, filename);
@@ -956,10 +822,10 @@ export function exportExcelMasterAdminReports(
 ): void {
   const wb = XLSX.utils.book_new();
 
-  // 1-14. Standard Reports
-  appendStandard14Sheets(wb, serviceData, salesData, warehouseData);
+  // Standard Reports (Servis, Penjualan, Gudang)
+  appendStandardSheets(wb, serviceData, salesData, warehouseData, true);
 
-  // 15-30. Complete Historical Activity Worksheets (Master Admin Exclusive)
+  // Historical Activity Worksheets (Master Admin Exclusive)
   // 15. Riwayat Aktivitas Admin (All logs)
   const ws15 = createAuditSheet(auditLogs, `Riwayat Aktivitas Admin - ${auditPeriodLabel}`);
   XLSX.utils.book_append_sheet(wb, ws15, 'Audit - Semua Aktivitas');
@@ -1014,17 +880,6 @@ export function exportExcelMasterAdminReports(
   const woPartLogs = auditLogs.filter((l) => l.module === 'wo_part');
   const ws24 = createAuditSheet(woPartLogs, 'Riwayat Alokasi Part Work Order');
   XLSX.utils.book_append_sheet(wb, ws24, 'Audit - Penjualan WO');
-
-  // 25. Riwayat Purchase Request
-  const prLogs = auditLogs.filter(
-    (l) =>
-      l.entityType === 'purchase_request' ||
-      l.action.toLowerCase().includes('order') ||
-      l.action.toLowerCase().includes('request') ||
-      l.event.toLowerCase().includes('request')
-  );
-  const ws25 = createAuditSheet(prLogs, 'Riwayat Permintaan Penyediaan Part');
-  XLSX.utils.book_append_sheet(wb, ws25, 'Audit - Purchase Request');
 
   // 26. Riwayat Persetujuan
   const persetujuanLogs = auditLogs.filter(
@@ -1360,8 +1215,6 @@ export function exportPdfWarehouseReport(data: WarehouseReportData): void {
     `Total Jenis Part: ${data.kpis.totalJenisPart} (Aman: ${data.kpis.partAmanCount}, Kritis: ${data.kpis.partKritisCount}, HO: ${data.kpis.partHoCount})`,
     `Total Qty Stok Tersedia: ${data.kpis.totalStokTersedia} pcs`,
     `Mutasi Barang Periode Ini: Masuk ${data.kpis.totalBarangMasuk} pcs, Keluar ${data.kpis.totalBarangKeluar} pcs`,
-    `Permintaan Penyediaan Pending: ${data.kpis.totalPermintaanPending}`,
-    `Pesanan Belum Sampai: ${data.kpis.totalPesananBelumSampai}`,
   ];
 
   doc.setFont('helvetica', 'normal');
@@ -1446,12 +1299,13 @@ export function exportPdfWarehouseReport(data: WarehouseReportData): void {
   doc.save(`MyBengkel_Laporan_Gudang_${sanitizeFilename(data.periodLabel)}.pdf`);
 }
 
-// Helper to add the 5 standard report sections to PDF
+// Helper to add standard report sections to PDF (Servis + Penjualan, and Gudang if allowed)
 function addStandardPdfSections(
   doc: jsPDF,
   serviceData: ServiceReportData,
   salesData: SalesReportData,
-  warehouseData: WarehouseReportData
+  warehouseData: WarehouseReportData,
+  includeWarehouse: boolean = true
 ): void {
   // 1. Service Section
   const startY1 = addPdfHeader(
@@ -1520,6 +1374,10 @@ function addStandardPdfSections(
     headStyles: { fillColor: [26, 100, 176], textColor: [255, 255, 255] },
   });
 
+  if (!includeWarehouse) {
+    return;
+  }
+
   // 3. Warehouse Section (New page)
   doc.addPage();
   const startY3 = addPdfHeader(
@@ -1552,50 +1410,17 @@ function addStandardPdfSections(
     headStyles: { fillColor: [26, 100, 176], textColor: [255, 255, 255] },
   });
 
-  // 4. Warehouse Requests & Orders (New page)
+  // 4. Stock Opname Section (New page)
   doc.addPage();
   const startY4 = addPdfHeader(
     doc,
-    'Laporan Terintegrasi - Bagian 4: Pengadaan & Pemesanan Part',
+    'Laporan Terintegrasi - Bagian 4: Audit Stok Opname',
     warehouseData.periodLabel
   );
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(30, 34, 48);
-  doc.text('PERMINTAAN PENYEDIAAN PART', 14, startY4);
-
-  const reqRows = warehouseData.tables.requests.map((r) => [
-    r.kodePermintaan,
-    r.jenisPermintaan,
-    r.pemohon,
-    r.kodePart,
-    r.namaPart,
-    r.jumlah,
-    r.statusPart,
-    r.statusPermintaan,
-    r.tanggalDiajukan,
-  ]);
-
-  autoTable(doc, {
-    startY: startY4 + 3,
-    head: [['Kode Req', 'Jenis', 'Pemohon', 'Kode Part', 'Nama Part', 'Qty', 'Status Part', 'Status Req', 'Tgl Ajukan']],
-    body: reqRows,
-    theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 1.5 },
-    headStyles: { fillColor: [40, 50, 70], textColor: [255, 255, 255] },
-  });
-
-  // 5. Stock Opname Section (New page)
-  doc.addPage();
-  const startY5 = addPdfHeader(
-    doc,
-    'Laporan Terintegrasi - Bagian 5: Audit Stok Opname',
-    warehouseData.periodLabel
-  );
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(30, 34, 48);
-  doc.text('RIWAYAT SESI AUDIT STOK OPNAME', 14, startY5);
+  doc.text('RIWAYAT SESI AUDIT STOK OPNAME', 14, startY4);
 
   const soRows = warehouseData.stockOpname.rows.map((s) => [
     s.kodeOpname,
@@ -1610,7 +1435,7 @@ function addStandardPdfSections(
   ]);
 
   autoTable(doc, {
-    startY: startY5 + 3,
+    startY: startY4 + 3,
     head: [['Kode Opname', 'Tgl Opname', 'Petugas', 'Total Part', 'Sesuai', 'Lebih', 'Kurang', 'Status', 'Disetujui Oleh']],
     body: soRows,
     theme: 'grid',
@@ -1665,12 +1490,12 @@ function addPdfAuditSection(
 export function exportPdfAllReports(
   serviceData: ServiceReportData,
   salesData: SalesReportData,
-  warehouseData: WarehouseReportData
+  warehouseData: WarehouseReportData,
+  includeWarehouse: boolean = true
 ): void {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-  // 5 Standard Report Sections (Admin Export)
-  addStandardPdfSections(doc, serviceData, salesData, warehouseData);
+  addStandardPdfSections(doc, serviceData, salesData, warehouseData, includeWarehouse);
 
   addPdfFooter(doc);
   doc.save(`MyBengkel_Laporan_Lengkap_${sanitizeFilename(serviceData.periodLabel)}.pdf`);
@@ -1685,8 +1510,7 @@ export function exportPdfMasterAdminReports(
 ): void {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-  // 1 to 5: Standard Sections
-  addStandardPdfSections(doc, serviceData, salesData, warehouseData);
+  addStandardPdfSections(doc, serviceData, salesData, warehouseData, true);
 
   // 6 to 14: Audit Sections (9 sections)
   // 6. Ringkasan Aktivitas Master Admin
