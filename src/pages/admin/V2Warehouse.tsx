@@ -5,7 +5,6 @@ import { computeStock, Part } from '../../data/adminDummy';
 import { useAuth } from '../../lib/mockAuth';
 import { formatRupiah } from '../../lib/format';
 import { PageHeader } from '../../components/admin/PageHeader';
-import { KpiCard } from '../../components/admin/KpiCard';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { FilterTabs } from '../../components/admin/FilterTabs';
@@ -93,11 +92,6 @@ const V2Warehouse: React.FC = () => {
 
   const totalCount = stockRows.length;
   const lowCount = useMemo(() => stockRows.filter((r) => r.critical).length, [stockRows]);
-  const regulerCount = useMemo(
-    () => stockRows.filter((r) => r.part.jenis === 'reguler').length,
-    [stockRows]
-  );
-  const hoCount = useMemo(() => stockRows.filter((r) => r.part.jenis === 'ho').length, [stockRows]);
 
   const filteredParts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -358,60 +352,6 @@ const V2Warehouse: React.FC = () => {
           ) : undefined
         }
       />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          to="/admin/v2/warehouse"
-          value={totalCount}
-          label="Total Item Part"
-          color="#3DA5F5"
-          bgTint="rgba(61, 165, 245, 0.14)"
-          icon={
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              <path d="M10 2.5L3 6V14L10 17.5L17 14V6L10 2.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-          }
-        />
-        <KpiCard
-          to="/admin/v2/warehouse?filter=low"
-          value={lowCount}
-          label="Stok di Bawah Minimum"
-          color="#D62E5A"
-          bgTint="rgba(242, 70, 111, 0.14)"
-          icon={
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              <path d="M10 3.5L17.5 16.5H2.5L10 3.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              <path d="M10 8.5V12M10 14.2H10.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          }
-        />
-        <KpiCard
-          to="/admin/v2/warehouse"
-          value={regulerCount}
-          label="Part Reguler"
-          color="#1F9D3A"
-          bgTint="rgba(92, 196, 106, 0.14)"
-          icon={
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              <rect x="3.5" y="4.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M7 9.5H13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          }
-        />
-        <KpiCard
-          to="/admin/v2/warehouse"
-          value={hoCount}
-          label="Part Jenis HO"
-          color="#B77700"
-          bgTint="rgba(255, 189, 89, 0.18)"
-          icon={
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M10 6.8V10L12.2 11.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          }
-        />
-      </div>
 
       <DataCard
         title="Daftar Stok Part Gudang"
