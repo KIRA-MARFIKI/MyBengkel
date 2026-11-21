@@ -6,15 +6,22 @@ import {
 } from '../../context/AdminContext';
 import {
   useAuth,
-  DUMMY_ADMIN_PASSWORD,
-  DUMMY_ADMIN_PIN,
-  DUMMY_ADMIN_LOGIN_PIN,
+  SEED_ACCOUNTS,
+  deriveFiveDigitPin,
 } from '../../lib/mockAuth';
+import { getManagedAccounts } from '../../lib/mockCredentials';
+import { supabase } from '../../lib/supabase';
 import type { Mechanic } from '../../data/adminDummy';
 import { DataCard } from '../../components/admin/DataCard';
 import { DataTable, Column } from '../../components/admin/DataTable';
 import { StatusChip } from '../../components/admin/StatusChip';
-import { ActionButton, IconActionButton, XIconButton } from '../../components/admin/ActionButton';
+import {
+  ActionButton,
+  EyeIcon,
+  EyeOffIcon,
+  IconActionButton,
+  XIconButton,
+} from '../../components/admin/ActionButton';
 import { FormField } from '../../components/admin/FormField';
 import { SidePanel } from '../../components/admin/SidePanel';
 import { CenterDialog } from '../../components/admin/CenterDialog';
@@ -47,9 +54,12 @@ const V1Attendance: React.FC = () => {
     addAttendanceCheckIn,
     updateAttendance,
   } = useAdmin();
-  const { adminEmail, role } = useAuth();
+  const { adminEmail, role, user } = useAuth();
   const { notifyAction } = useActionIsland();
   const canExecuteServis = role === 'admin';
+  const activeAdminEmail = (user?.email || adminEmail || SEED_ACCOUNTS.admin.email)
+    .trim()
+    .toLowerCase();
 
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
   const [isListOpen, setIsListOpen] = useState<boolean>(false);
@@ -61,6 +71,8 @@ const V1Attendance: React.FC = () => {
   const [addModalStep, setAddModalStep] = useState<'closed' | 'auth' | 'form'>('closed');
   const [authEmail, setAuthEmail] = useState<string>('');
   const [authPassword, setAuthPassword] = useState<string>('');
+  const [authShowPassword, setAuthShowPassword] = useState<boolean>(false);
+  const [authChecking, setAuthChecking] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
   const [authFailCount, setAuthFailCount] = useState<number>(0);
   const [authLockedUntil, setAuthLockedUntil] = useState<number>(0);
@@ -80,6 +92,7 @@ const V1Attendance: React.FC = () => {
   const [deleteReason, setDeleteReason] = useState<string>('');
   const [deleteReasonError, setDeleteReasonError] = useState<string>('');
   const [pinValue, setPinValue] = useState<string>('');
+  const [pinChecking, setPinChecking] = useState<boolean>(false);
   const [pinError, setPinError] = useState<string>('');
   const [pinFailCount, setPinFailCount] = useState<number>(0);
   const [pinLockedUntil, setPinLockedUntil] = useState<number>(0);
@@ -149,8 +162,10 @@ const V1Attendance: React.FC = () => {
   const handleOpenNewMechanicGate = (e: React.MouseEvent<HTMLElement>) => {
     setLastTriggerElement(e.currentTarget);
     setDeleteBlockError('');
-    setAuthEmail('');
+    setAuthEmail(activeAdminEmail);
     setAuthPassword('');
+    setAuthShowPassword(false);
+    setAuthChecking(false);
     setAuthError('');
     setNewNama('');
     setNewHp('');
@@ -164,16 +179,102 @@ const V1Attendance: React.FC = () => {
     ? Math.max(1, Math.ceil((authLockedUntil - nowMs) / 1000))
     : 0;
 
-  const handleVerifyAdminCredentials = (e: React.FormEvent) => {
+  const handleVerifyAdminCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isAuthLocked) return;
+    if (isAuthLocked || authChecking) return;
 
-    // MOCK: replace with server verification. Never check passwords in the browser.
-    const emailMatches =
-      authEmail.trim().toLowerCase() === adminEmail.trim().toLowerCase();
-    const passwordMatches = authPassword === DUMMY_ADMIN_PASSWORD;
+    const cleanInputEmail = authEmail.trim().toLowerCase();
+    if (!cleanInputEmail || !authPassword) {
+      setAuthError('Email dan kata sandi wajib diisi.');
+      return;
+    }
 
-    if (!emailMatches || !passwordMatches) {
+    if (cleanInputEmail !== activeAdminEmail) {
+      const nextFails = authFailCount + 1;
+      setAuthFailCount(nextFails);
+      if (nextFails >= 3) {
+        setAuthLockedUntil(Date.now() + 30_000);
+        setNowMs(Date.now());
+        setAuthError(
+          `Email tidak sesuai dengan akun Admin aktif (${activeAdminEmail}). Dialog dikunci selama 30 detik.`
+        );
+      } else {
+        setAuthError(
+          `Email tidak sesuai dengan akun Admin yang sedang masuk (${activeAdminEmail}).`
+        );
+      }
+      return;
+    }
+
+    setAuthChecking(true);
+    setAuthError('');
+    let verified = false;
+
+    try {
+      let { data, error } = await supabase.rpc('verify_account_login_and_pin', {
+        p_email: cleanInputEmail,
+        p_password: authPassword,
+        p_pin: '',
+      });
+      if (
+        error &&
+        (error.code === 'PGRST202' ||
+          String(error.message || '').includes('Could not find the function'))
+      ) {
+        const alt = await supabase.rpc('authenticate_account_login', {
+          p_email: cleanInputEmail,
+          p_password: authPassword,
+          p_pin: '',
+        });
+        data = alt.data;
+        error = alt.error;
+      }
+
+      if (!error && data) {
+        const res = data as any;
+        const dbRole = String(res.role || '').trim().toLowerCase();
+        if (res.ok && (dbRole === 'admin' || dbRole === 'admin_gudang')) {
+          verified = true;
+        }
+      } else if (error) {
+        // Offline / missing-RPC fallback against active managed registry or default seed
+        const managed = getManagedAccounts().find(
+          (acc) => acc.email.trim().toLowerCase() === cleanInputEmail
+        );
+        if (
+          managed &&
+          (managed.role === 'admin' || managed.role === 'admin_gudang') &&
+          managed.password === authPassword
+        ) {
+          verified = true;
+        } else if (
+          cleanInputEmail === SEED_ACCOUNTS.admin.email &&
+          authPassword === SEED_ACCOUNTS.admin.password
+        ) {
+          verified = true;
+        }
+      }
+    } catch {
+      const managed = getManagedAccounts().find(
+        (acc) => acc.email.trim().toLowerCase() === cleanInputEmail
+      );
+      if (
+        managed &&
+        (managed.role === 'admin' || managed.role === 'admin_gudang') &&
+        managed.password === authPassword
+      ) {
+        verified = true;
+      } else if (
+        cleanInputEmail === SEED_ACCOUNTS.admin.email &&
+        authPassword === SEED_ACCOUNTS.admin.password
+      ) {
+        verified = true;
+      }
+    } finally {
+      setAuthChecking(false);
+    }
+
+    if (!verified) {
       const nextFails = authFailCount + 1;
       setAuthFailCount(nextFails);
       if (nextFails >= 3) {
@@ -248,6 +349,7 @@ const V1Attendance: React.FC = () => {
     setDeleteReason('');
     setDeleteReasonError('');
     setPinValue('');
+    setPinChecking(false);
     setPinError('');
     setDeleteTarget(m);
   };
@@ -257,9 +359,9 @@ const V1Attendance: React.FC = () => {
     ? Math.max(1, Math.ceil((pinLockedUntil - nowMs) / 1000))
     : 0;
 
-  const handleVerifyDeletePin = (e: React.FormEvent) => {
+  const handleVerifyDeletePin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deleteTarget || isPinLocked) return;
+    if (!deleteTarget || isPinLocked || pinChecking) return;
 
     const trimmedReason = deleteReason.trim();
     if (!trimmedReason) {
@@ -268,8 +370,58 @@ const V1Attendance: React.FC = () => {
       return;
     }
 
-    // MOCK: verify on the server. Never check secrets in the browser.
-    if (pinValue !== DUMMY_ADMIN_PIN && pinValue !== DUMMY_ADMIN_LOGIN_PIN) {
+    const cleanPin = pinValue.replace(/\D/g, '');
+    if (!cleanPin) {
+      setPinError('PIN admin wajib diisi.');
+      document.getElementById('delete-mech-pin')?.focus();
+      return;
+    }
+
+    setPinChecking(true);
+    setPinError('');
+    let pinValid = false;
+
+    const sessionCandidates = new Set<string>();
+    if (user?.pin) {
+      sessionCandidates.add(user.pin);
+      const derived = deriveFiveDigitPin(user.pin);
+      if (derived) sessionCandidates.add(derived);
+    }
+    if (user?.pin5) sessionCandidates.add(user.pin5);
+
+    const managed = getManagedAccounts().find(
+      (acc) => acc.email.trim().toLowerCase() === activeAdminEmail
+    );
+    if (managed?.pin12) {
+      sessionCandidates.add(managed.pin12);
+      const derived = deriveFiveDigitPin(managed.pin12);
+      if (derived) sessionCandidates.add(derived);
+    }
+    if (managed?.pin5) sessionCandidates.add(managed.pin5);
+
+    if (activeAdminEmail === SEED_ACCOUNTS.admin.email && sessionCandidates.size === 0) {
+      sessionCandidates.add(SEED_ACCOUNTS.admin.pin);
+      sessionCandidates.add(SEED_ACCOUNTS.admin.pin5);
+    }
+
+    if (sessionCandidates.has(cleanPin)) {
+      pinValid = true;
+    } else {
+      try {
+        const { data: rpcPinOk, error: rpcPinErr } = await supabase.rpc('verify_user_pin', {
+          p_email: activeAdminEmail,
+          p_pin: cleanPin,
+        });
+        if (!rpcPinErr && rpcPinOk === true) {
+          pinValid = true;
+        }
+      } catch {
+        // ignore RPC error
+      }
+    }
+    setPinChecking(false);
+
+    if (!pinValid) {
       const nextFails = pinFailCount + 1;
       setPinFailCount(nextFails);
       if (nextFails >= 3) {
@@ -529,18 +681,20 @@ const V1Attendance: React.FC = () => {
             <ActionButton
               type="button"
               intent="start"
-              disabled={isAuthLocked}
+              disabled={isAuthLocked || authChecking}
               onClick={(e) =>
-                handleVerifyAdminCredentials(e as unknown as React.FormEvent)
+                void handleVerifyAdminCredentials(e as unknown as React.FormEvent)
               }
+              className="!min-h-[44px]"
             >
-              Lanjutkan
+              {authChecking ? 'Memverifikasi...' : 'Lanjutkan'}
             </ActionButton>
           ) : (
             <ActionButton
               type="button"
               intent="start"
               onClick={(e) => handleSaveNewMechanic(e as unknown as React.FormEvent)}
+              className="!min-h-[44px]"
             >
               Simpan
             </ActionButton>
@@ -548,37 +702,53 @@ const V1Attendance: React.FC = () => {
         }
       >
         {addModalStep === 'auth' ? (
-          <form onSubmit={handleVerifyAdminCredentials} noValidate className="space-y-4">
+          <form
+            onSubmit={(e) => void handleVerifyAdminCredentials(e)}
+            noValidate
+            className="space-y-4"
+          >
             <p className="text-[14px] text-[#646B7C]">
-              Masukkan email dan kata sandi admin yang sedang masuk untuk menambah mekanik.
+              Masukkan email dan kata sandi terbaru akun Admin yang sedang masuk (
+              <span className="font-mono text-[#1E2230]">{activeAdminEmail}</span>
+              ) untuk menambah mekanik baru.
             </p>
-            <FormField id="mech-auth-email" label="Email">
+            <FormField id="mech-auth-email" label="Email Admin">
               <input
                 id="mech-auth-email"
                 type="email"
-                disabled={isAuthLocked}
+                disabled={isAuthLocked || authChecking}
                 value={authEmail}
                 onChange={(e) => {
                   setAuthEmail(e.target.value);
                   if (!isAuthLocked) setAuthError('');
                 }}
-                placeholder={adminEmail}
-                className="admin-input"
+                placeholder={activeAdminEmail}
+                className="admin-input font-mono"
               />
             </FormField>
-            <FormField id="mech-auth-password" label="Kata sandi">
-              <input
-                id="mech-auth-password"
-                type="password"
-                disabled={isAuthLocked}
-                value={authPassword}
-                onChange={(e) => {
-                  setAuthPassword(e.target.value);
-                  if (!isAuthLocked) setAuthError('');
-                }}
-                placeholder="Kata sandi admin"
-                className="admin-input"
-              />
+            <FormField id="mech-auth-password" label="Kata sandi terbaru">
+              <div className="flex items-center gap-2">
+                <input
+                  id="mech-auth-password"
+                  type={authShowPassword ? 'text' : 'password'}
+                  disabled={isAuthLocked || authChecking}
+                  value={authPassword}
+                  onChange={(e) => {
+                    setAuthPassword(e.target.value);
+                    if (!isAuthLocked) setAuthError('');
+                  }}
+                  placeholder="Masukkan kata sandi admin"
+                  className="admin-input flex-1"
+                />
+                <button
+                  type="button"
+                  aria-label={authShowPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                  onClick={() => setAuthShowPassword((v) => !v)}
+                  className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-[12px] bg-white border border-[#D9DDE6] text-[#646B7C] hover:text-[#1E2230] cursor-pointer shrink-0"
+                >
+                  {authShowPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+                </button>
+              </div>
             </FormField>
             {(authError || isAuthLocked) && (
               <p role="alert" className="text-[13px] text-[#D62E5A]">
@@ -651,8 +821,9 @@ const V1Attendance: React.FC = () => {
           <ActionButton
             type="button"
             intent="start"
-            disabled={isPinLocked}
-            onClick={(e) => handleVerifyDeletePin(e as unknown as React.FormEvent)}
+            disabled={isPinLocked || pinChecking}
+            onClick={(e) => void handleVerifyDeletePin(e as unknown as React.FormEvent)}
+            className="!min-h-[44px]"
           >
             <span className="inline-flex items-center gap-1.5">
               <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -664,14 +835,14 @@ const V1Attendance: React.FC = () => {
                   strokeLinejoin="round"
                 />
               </svg>
-              <span>Approve hapus</span>
+              <span>{pinChecking ? 'Memverifikasi...' : 'Approve hapus'}</span>
             </span>
           </ActionButton>
         }
       >
-        <form onSubmit={handleVerifyDeletePin} noValidate className="space-y-4">
+        <form onSubmit={(e) => void handleVerifyDeletePin(e)} noValidate className="space-y-4">
           <p className="text-[14px] text-[#646B7C]">
-            Tulis alasan penghapusan dan masukkan PIN admin untuk menonaktifkan mekanik ini dari daftar aktif.
+            Tulis alasan penghapusan dan masukkan PIN admin (12 digit atau 5 digit) untuk menonaktifkan mekanik ini dari daftar aktif.
           </p>
           <FormField
             id="delete-mech-reason"
@@ -681,7 +852,7 @@ const V1Attendance: React.FC = () => {
             <textarea
               id="delete-mech-reason"
               rows={3}
-              disabled={isPinLocked}
+              disabled={isPinLocked || pinChecking}
               value={deleteReason}
               onChange={(e) => {
                 setDeleteReason(e.target.value);
@@ -698,7 +869,7 @@ const V1Attendance: React.FC = () => {
               type="password"
               inputMode="numeric"
               maxLength={12}
-              disabled={isPinLocked}
+              disabled={isPinLocked || pinChecking}
               value={pinValue}
               onChange={(e) => {
                 setPinValue(e.target.value.replace(/\D/g, '').slice(0, 12));
